@@ -135,26 +135,48 @@ _EXTRACT_JS = r"""
         }
     }
     if (!container) container = document.body;
-    const content = clean(container.innerText);
 
-    // Terms & conditions: find a heading whose text mentions "terms" and grab
-    // the text of its surrounding section / following sibling.
+    // Work on a clone with the site chrome removed, so we never capture the
+    // global navigation/footer — which is where the site-wide Terms of Service
+    // lives. This keeps both the content and the terms scoped to the promotion.
+    const clone = container.cloneNode(true);
+    clone.querySelectorAll(
+        'header,nav,footer,script,style,noscript,svg,form,' +
+        '[role="navigation"],[role="banner"],[role="contentinfo"]'
+    ).forEach((n) => n.remove());
+
+    const content = clean(clone.innerText);
+
+    // Terms & conditions: find a heading *inside the promotion content* whose
+    // label mentions terms, then capture a bounded amount of the text that
+    // follows it. Bounding avoids accidentally grabbing a whole ToS document.
     let terms = '';
-    const headings = Array.from(
-        document.querySelectorAll('h1,h2,h3,h4,h5,summary,button,strong,p,span,div')
-    );
+    const headings = Array.from(clone.querySelectorAll('h1,h2,h3,h4,h5,h6,summary,strong,b,p'));
     for (const node of headings) {
         const label = (node.innerText || '').trim().toLowerCase();
-        if (label && label.length < 60 && /terms|conditions|wagering|t&c/.test(label)) {
-            const section = node.closest('section,details,div');
-            let candidate = '';
-            if (section && section.innerText && section.innerText.trim().length > label.length + 20) {
-                candidate = section.innerText;
-            } else if (node.nextElementSibling) {
-                candidate = node.nextElementSibling.innerText || '';
+        if (!label || label.length > 60) continue;
+        if (!/terms|conditions|wagering|t&c/.test(label)) continue;
+
+        let candidate = '';
+        const section = node.closest('details,section');
+        if (section && section !== clone) {
+            candidate = section.innerText || '';
+        } else {
+            const parts = [];
+            let sib = node.nextElementSibling;
+            let steps = 0;
+            while (sib && steps < 8) {
+                parts.push(sib.innerText || '');
+                sib = sib.nextElementSibling;
+                steps += 1;
             }
-            candidate = clean(candidate);
-            if (candidate.length > terms.length) terms = candidate;
+            candidate = parts.join('\n');
+        }
+        candidate = clean(candidate);
+
+        // Ignore implausibly large blobs (a full ToS page) and keep the best.
+        if (candidate.length > 20 && candidate.length < 8000 && candidate.length > terms.length) {
+            terms = candidate;
         }
     }
 
@@ -189,13 +211,24 @@ def _expand_collapsibles(page: Any) -> None:
         page.evaluate(
             """
             () => {
-                document.querySelectorAll('details').forEach(d => d.open = true);
+                // Open native disclosure widgets.
+                document.querySelectorAll('details').forEach(d => { d.open = true; });
+
+                // Click in-page expanders ONLY. Never click links (<a>) — a
+                // footer "Terms of Service" link would navigate away to the
+                // site-wide ToS page. Also skip the site chrome (nav/header/footer).
+                const inChrome = (el) => !!el.closest(
+                    'nav,header,footer,[role="navigation"],[role="banner"],[role="contentinfo"]'
+                );
                 const toggles = Array.from(
-                    document.querySelectorAll('summary,button,[role="button"],a')
+                    document.querySelectorAll('summary,button,[role="button"],[aria-expanded]')
                 );
                 for (const t of toggles) {
+                    if (t.tagName === 'A' || t.closest('a')) continue;
+                    if (inChrome(t)) continue;
                     const label = (t.innerText || '').trim().toLowerCase();
-                    if (label && label.length < 40 && /terms|conditions|show more|read more/.test(label)) {
+                    if (label && label.length < 40 &&
+                        /terms|conditions|wagering|show more|read more|details/.test(label)) {
                         try { t.click(); } catch (e) { /* ignore */ }
                     }
                 }
@@ -291,6 +324,19 @@ def _scrape_detail(page: Any, url: str) -> Optional[dict[str, str]]:
         except Exception:  # noqa: BLE001
             pass
         _expand_collapsibles(page)
+
+        # Safety net: if expanding somehow navigated away (e.g. an unexpected
+        # in-page link to the global Terms of Service), go back so we extract
+        # the promotion and not whatever page we landed on.
+        if page.url.rstrip("/") != url.rstrip("/"):
+            logger.info("Page navigated to %s while expanding; returning to %s", page.url, url)
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+                _wait_for_verification(page)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not return to %s: %s", url, exc)
+                return None
+
         data: dict[str, str] = page.evaluate(_EXTRACT_JS)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to scrape %s: %s", url, exc)

@@ -1,0 +1,16 @@
+# Local SQLite database (created at runtime)
+promotions.db
+promotions.db-wal
+promotions.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ promotion.title }} · Stake Promotion Search</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+    <div class="max-w-3xl mx-auto px-4 py-8">
+        <a href="/" class="inline-flex items-center text-indigo-600 hover:text-indigo-800 mb-6">
+            &larr; Back to search
+        </a>
+
+        <article class="bg-white rounded-xl shadow-sm p-6">
+            <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded">
+                {{ promotion.category }}
+            </span>
+            <h1 class="text-2xl font-bold text-slate-900 mt-3">{{ promotion.title }}</h1>
+
+            <dl class="text-sm text-slate-500 mt-3 space-y-1">
+                <div>
+                    <dt class="inline font-medium">Source:</dt>
+                    <dd class="inline">
+                        <a href="{{ promotion.url }}" target="_blank" rel="noopener noreferrer"
+                           class="text-indigo-600 hover:underline break-all">{{ promotion.url }}</a>
+                    </dd>
+                </div>
+                <div>
+                    <dt class="inline font-medium">Last updated:</dt>
+                    <dd class="inline">{{ promotion.scraped_at }}</dd>
+                </div>
+            </dl>
+
+            <hr class="my-5 border-slate-200" />
+
+            <section>
+                <h2 class="text-lg font-semibold text-slate-900 mb-2">Promotion details</h2>
+                {% if promotion.content %}
+                <div class="whitespace-pre-wrap leading-relaxed text-slate-700">{{ promotion.content }}</div>
+                {% else %}
+                <p class="text-slate-400 italic">No content was captured for this promotion.</p>
+                {% endif %}
+            </section>
+
+            {% if promotion.terms %}
+            <section class="mt-6">
+                <h2 class="text-lg font-semibold text-slate-900 mb-2">Terms &amp; Conditions</h2>
+                <div class="whitespace-pre-wrap leading-relaxed text-slate-600 text-sm bg-slate-50 border border-slate-200 rounded-lg p-4">{{ promotion.terms }}</div>
+            </section>
+            {% endif %}
+        </article>
+    </div>
+</body>
+</html>

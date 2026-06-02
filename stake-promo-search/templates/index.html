@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stake Promotion Search</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+    <div class="max-w-4xl mx-auto px-4 py-8">
+        <header class="mb-6">
+            <h1 class="text-3xl font-bold text-slate-900">Stake Promotion Search</h1>
+            <p class="text-slate-500 mt-1">
+                Internal knowledge base for support agents.
+                <span id="total-count" class="font-medium">{{ total }}</span> promotions stored.
+            </p>
+        </header>
+
+        <section class="bg-white rounded-xl shadow-sm p-5 mb-6">
+            <form id="search-form" class="flex flex-col sm:flex-row gap-3">
+                <input
+                    id="query"
+                    type="text"
+                    placeholder="Search promotions by keyword…"
+                    autocomplete="off"
+                    class="flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <select
+                    id="category"
+                    class="border border-slate-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                    <option value="">All categories</option>
+                    {% for category in categories %}
+                    <option value="{{ category }}">{{ category|capitalize }}</option>
+                    {% endfor %}
+                </select>
+                <button
+                    type="submit"
+                    class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg px-5 py-2 transition-colors"
+                >
+                    Search
+                </button>
+                <button
+                    type="button"
+                    id="refresh-btn"
+                    class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded-lg px-5 py-2 transition-colors"
+                    title="Re-scrape promotions from stake.com"
+                >
+                    Refresh data
+                </button>
+            </form>
+            <p id="status" class="text-sm mt-3 text-slate-500"></p>
+        </section>
+
+        <section>
+            <div id="results" class="space-y-3"></div>
+            <p id="empty" class="hidden text-center text-slate-400 py-10">No promotions found.</p>
+        </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

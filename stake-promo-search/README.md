@@ -5,6 +5,12 @@ promotions from their own computer. It scrapes the public promotion pages,
 stores them in a local SQLite database, and provides a fast keyword search with
 a simple web interface.
 
+Promotions are organised into two groups, switchable from the homepage:
+
+- **Site** — promotions from the Stake.com category pages.
+- **Forum** — promotion topics from the Stake Community boards (only the opening
+  post of each topic is stored; replies and comments are skipped).
+
 - **Backend:** Python + FastAPI
 - **Database:** SQLite with FTS5 full-text search
 - **Frontend:** HTML + Tailwind (CDN) + vanilla JavaScript
@@ -24,8 +30,17 @@ Before choosing an approach, the Stake promotion pages were analysed:
 - `https://stake.com/promotions/category/esports`
 - `https://stake.com/promotions/category/sports`
 
-The set of categories scraped is defined in `CATEGORY_URLS` in `scraper.py`;
-add or remove entries there to change what gets collected.
+It also scrapes these **Stake Community forum** boards (one promotion per topic,
+opening post only — comments are skipped):
+
+- `https://stakecommunity.com/board/138-casino/`
+- `https://stakecommunity.com/board/406-limited-time/`
+- `https://stakecommunity.com/board/217-exclusive-vip-promotions/`
+
+The sites/boards scraped are defined by `CATEGORY_URLS` and `FORUM_BOARD_URLS`
+in `scraper.py`; add or remove entries there to change what gets collected. By
+default only the first page of each forum board is scraped (set
+`STAKE_FORUM_PAGES` to scrape more).
 
 Findings:
 
@@ -80,6 +95,7 @@ You'll briefly see a Chromium window open during a refresh; that's expected.
 | -------- | ------- | ------ |
 | `STAKE_HEADLESS` | `0` | Set to `1` to run headless (e.g. on a server). The bot check may then not clear. |
 | `STAKE_SLOWMO_MS` | `0` | Milliseconds to slow each browser action; can help on slow connections. |
+| `STAKE_FORUM_PAGES` | `1` | Number of pages to scrape per forum board. |
 
 ---
 
@@ -127,13 +143,17 @@ the page reports progress and shows results automatically when it finishes.
 
 - **Search bar** — type any keyword and press *Search* (or Enter). Matches
   promotion titles, body text and terms & conditions.
-- **Category filter** — narrow results to `casino` or `community`.
-- **Result list** — each card shows the title, category and a short preview.
+- **Group filter** — switch between **All groups**, **Site** and **Forum**.
+- **Category filter** — narrow results to a specific category/board.
+- **Result list** — each card shows the title, a Site/Forum badge, the category,
+  the promotion **duration** (date range) when available, and a short preview.
 - **Click a result** — opens the full promotion: complete content, terms &
-  conditions, the source URL, and when it was last updated. The text is
-  reflowed for readability (spacing after punctuation, one sentence per line);
-  this is display-only and never changes the stored data or search results.
-- **Refresh data** — re-scrapes the promotion pages and updates the database.
+  conditions, the duration, the source URL, and when it was last updated. The
+  **How To Enter** section is highlighted and the text is reflowed for
+  readability (spacing after punctuation, one sentence per line), long
+  leaderboard tables are omitted; this is display-only and never changes the
+  stored data or search results.
+- **Refresh data** — re-scrapes the site and forum and updates the database.
 
 ---
 
@@ -143,14 +163,14 @@ the page reports progress and shows results automatically when it finishes.
 | ------------- | ----------- |
 | `GET /` | Homepage (search UI) |
 | `GET /promotion/{id}` | Full promotion details page |
-| `GET /api/search?q=&category=&limit=` | JSON keyword search |
+| `GET /api/search?q=&category=&source=&limit=` | JSON keyword search (`source` is `site` or `forum`) |
 | `POST /api/refresh` | Start a background re-scrape |
 | `GET /api/refresh/status` | Progress / result of the last refresh |
 
 Example:
 
 ```bash
-curl "http://localhost:8000/api/search?q=bonus&category=casino"
+curl "http://localhost:8000/api/search?q=bonus&category=casino&source=site"
 curl -X POST "http://localhost:8000/api/refresh"
 curl "http://localhost:8000/api/refresh/status"
 ```
@@ -181,8 +201,9 @@ on first run.
 
 ## How storage & search work
 
-- Each promotion is stored with: **title, URL, category, content, terms,
-  scraped_at**.
+- Each promotion is stored with: **title, URL, category, source** (site/forum),
+  **duration** (date range), **content, terms, scraped_at**. Existing databases
+  are migrated automatically to add the new `source`/`duration` columns.
 - **Duplicates are prevented** by a `UNIQUE` constraint on the promotion URL;
   re-scraping updates existing rows in place.
 - **Search uses SQLite FTS5** (with the `porter` stemmer) over title, content

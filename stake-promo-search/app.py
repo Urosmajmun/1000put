@@ -9,6 +9,7 @@ then open http://localhost:8000 in a browser.
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 import threading
@@ -134,6 +135,82 @@ def format_promo_text(text: str) -> str:
     return text.strip()
 
 
+# Section headings recognised inside promotion content. "How To Enter" is the
+# one we make stand out; the others are rendered as plain subheadings.
+_HOWTO_HEADINGS = ("how to enter", "how to participate", "how to qualify", "how to claim")
+_OTHER_HEADINGS = (
+    "how it works", "prize", "prizes", "prize pool", "rewards", "reward",
+    "eligibility", "eligible", "requirements", "wagering", "schedule",
+    "duration", "important", "terms", "terms and conditions", "terms & conditions",
+)
+
+
+def _heading_kind(line: str) -> Optional[str]:
+    """Classify a line as a 'howto' heading, a generic 'section' heading, or None."""
+    stripped = line.strip()
+    if not stripped or len(stripped) > 70:
+        return None
+    key = stripped.rstrip(":").strip().lower()
+    if any(key == h or key.startswith(h) for h in _HOWTO_HEADINGS):
+        return "howto"
+    if any(key == h or key.startswith(h) for h in _OTHER_HEADINGS):
+        return "section"
+    # A short line that ends with a colon is treated as a generic subheading.
+    if stripped.endswith(":") and len(stripped) <= 60:
+        return "section"
+    return None
+
+
+def content_to_html(text: str) -> str:
+    """Render formatted promotion content as safe HTML.
+
+    The 'How To Enter' section (its heading plus the lines up to the next
+    heading) is wrapped in a highlighted, more prominent block; other headings
+    become bold subheadings. All text is HTML-escaped before any markup is added,
+    so scraped content can never inject markup.
+    """
+    formatted = format_promo_text(text)
+    if not formatted:
+        return ""
+
+    lines = formatted.split("\n")
+    out: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        if not line.strip():
+            i += 1
+            continue
+        kind = _heading_kind(line)
+        if kind == "howto":
+            heading = html.escape(line.strip().rstrip(":"))
+            body: list[str] = []
+            j = i + 1
+            while j < n and _heading_kind(lines[j]) is None:
+                if lines[j].strip():
+                    body.append(html.escape(lines[j].strip()))
+                j += 1
+            body_html = "<br>".join(body)
+            out.append(
+                '<div class="my-4 rounded-lg border-l-4 border-amber-400 bg-amber-50 p-4">'
+                f'<p class="font-bold text-amber-800 text-lg mb-2">{heading}</p>'
+                f'<div class="text-slate-800 leading-relaxed">{body_html}</div>'
+                "</div>"
+            )
+            i = j
+        elif kind == "section":
+            heading = html.escape(line.strip().rstrip(":"))
+            out.append(f'<p class="font-semibold text-slate-900 mt-4 mb-1">{heading}</p>')
+            i += 1
+        else:
+            out.append(
+                f'<p class="mb-2 text-slate-700 leading-relaxed">{html.escape(line.strip())}</p>'
+            )
+            i += 1
+    return "".join(out)
+
+
 def _preview(text: str, length: int = PREVIEW_LENGTH) -> str:
     text = " ".join(format_promo_text(text).split())
     if len(text) <= length:
@@ -166,13 +243,14 @@ def promotion_detail(request: Request, promotion_id: int) -> HTMLResponse:
     promotion = database.get_promotion(promotion_id)
     if promotion is None:
         raise HTTPException(status_code=404, detail="Promotion not found")
-    # Format for readability at display time; stored data stays untouched.
-    promotion["content"] = format_promo_text(promotion["content"])
+    # Render content as highlighted HTML (How To Enter stands out); format terms
+    # for readability. Display-time only — stored data and the index are unchanged.
+    content_html = content_to_html(promotion["content"])
     promotion["terms"] = format_promo_text(promotion["terms"])
     return templates.TemplateResponse(
         request,
         "promotion.html",
-        {"promotion": promotion},
+        {"promotion": promotion, "content_html": content_html},
     )
 
 
@@ -180,23 +258,37 @@ def promotion_detail(request: Request, promotion_id: int) -> HTMLResponse:
 def api_search(
     q: str = Query("", description="Keyword query"),
     category: Optional[str] = Query(None, description="Optional category filter"),
+    source: Optional[str] = Query(None, description="Group filter: 'site' or 'forum'"),
     limit: int = Query(100, ge=1, le=500),
 ) -> JSONResponse:
     """Keyword search across promotion title, body and terms."""
-    category_filter = category if category else None
-    results = database.search(q.strip(), category=category_filter, limit=limit)
+    category_filter = category or None
+    source_filter = source if source in {"site", "forum"} else None
+    results = database.search(
+        q.strip(), category=category_filter, source=source_filter, limit=limit
+    )
     payload = [
         {
             "id": row["id"],
             "title": row["title"],
             "category": row["category"],
+            "source": row["source"],
+            "duration": row["duration"],
             "url": row["url"],
             "preview": _preview(row["content"]) or _preview(row["terms"]),
             "scraped_at": row["scraped_at"],
         }
         for row in results
     ]
-    return JSONResponse({"query": q, "category": category_filter, "count": len(payload), "results": payload})
+    return JSONResponse(
+        {
+            "query": q,
+            "category": category_filter,
+            "source": source_filter,
+            "count": len(payload),
+            "results": payload,
+        }
+    )
 
 
 @app.post("/api/refresh")

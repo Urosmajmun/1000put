@@ -27,6 +27,15 @@
                     class="flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <select
+                    id="source"
+                    class="border border-slate-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    title="Group"
+                >
+                    <option value="">All groups</option>
+                    <option value="site">Site</option>
+                    <option value="forum">Forum</option>
+                </select>
+                <select
                     id="category"
                     class="border border-slate-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
@@ -45,7 +54,7 @@
                     type="button"
                     id="refresh-btn"
                     class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded-lg px-5 py-2 transition-colors"
-                    title="Re-scrape promotions from stake.com"
+                    title="Re-scrape promotions from the Stake site and forum"
                 >
                     Refresh data
                 </button>

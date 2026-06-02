@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS promotions (
     url         TEXT    NOT NULL UNIQUE,
     title       TEXT    NOT NULL,
     category    TEXT    NOT NULL,
+    source      TEXT    NOT NULL DEFAULT 'site',
+    duration    TEXT    NOT NULL DEFAULT '',
     content     TEXT    NOT NULL DEFAULT '',
     terms       TEXT    NOT NULL DEFAULT '',
     scraped_at  TEXT    NOT NULL
@@ -77,10 +79,42 @@ def init_db() -> None:
     conn = _connect()
     try:
         conn.executescript(_SCHEMA)
+        _migrate(conn)
+        _rebuild_fts(conn)
         conn.commit()
         logger.info("Database initialised at %s", DB_PATH)
     finally:
         conn.close()
+
+
+def _rebuild_fts(conn: sqlite3.Connection) -> None:
+    """Rebuild the full-text index from the canonical table on startup.
+
+    The sync triggers only index rows written *after* the FTS table exists, so a
+    database that predates full-text search would return no matches for its
+    existing rows. Rebuilding once at startup guarantees the index always matches
+    the data; it is idempotent and fast at this scale. (Row counts cannot be used
+    to detect drift, since COUNT(*) on an external-content FTS table reflects the
+    base table rather than the index itself.)
+    """
+    if conn.execute("SELECT COUNT(*) FROM promotions").fetchone()[0]:
+        conn.execute("INSERT INTO promotions_fts(promotions_fts) VALUES ('rebuild')")
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the first release to pre-existing databases.
+
+    SQLite has no ``ADD COLUMN IF NOT EXISTS``, so we inspect the schema first.
+    Existing rows predate the source/duration split, so they default to the
+    Stake site source and an empty duration until they are next scraped.
+    """
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(promotions)")}
+    if "source" not in existing:
+        conn.execute("ALTER TABLE promotions ADD COLUMN source TEXT NOT NULL DEFAULT 'site'")
+        logger.info("Migrated database: added 'source' column")
+    if "duration" not in existing:
+        conn.execute("ALTER TABLE promotions ADD COLUMN duration TEXT NOT NULL DEFAULT ''")
+        logger.info("Migrated database: added 'duration' column")
 
 
 def upsert_promotion(
@@ -88,6 +122,8 @@ def upsert_promotion(
     url: str,
     title: str,
     category: str,
+    source: str,
+    duration: str,
     content: str,
     terms: str,
     scraped_at: str,
@@ -103,11 +139,15 @@ def upsert_promotion(
         existed = cur.fetchone() is not None
         conn.execute(
             """
-            INSERT INTO promotions (url, title, category, content, terms, scraped_at)
-            VALUES (:url, :title, :category, :content, :terms, :scraped_at)
+            INSERT INTO promotions
+                (url, title, category, source, duration, content, terms, scraped_at)
+            VALUES
+                (:url, :title, :category, :source, :duration, :content, :terms, :scraped_at)
             ON CONFLICT(url) DO UPDATE SET
                 title      = excluded.title,
                 category   = excluded.category,
+                source     = excluded.source,
+                duration   = excluded.duration,
                 content    = excluded.content,
                 terms      = excluded.terms,
                 scraped_at = excluded.scraped_at
@@ -116,6 +156,8 @@ def upsert_promotion(
                 "url": url,
                 "title": title,
                 "category": category,
+                "source": source,
+                "duration": duration,
                 "content": content,
                 "terms": terms,
                 "scraped_at": scraped_at,
@@ -140,47 +182,60 @@ def _build_match_query(query: str) -> Optional[str]:
     return " ".join(f'"{token}"*' for token in tokens)
 
 
+_COLUMNS = "id, url, title, category, source, duration, content, terms, scraped_at"
+
+
 def search(
     query: str,
     category: Optional[str] = None,
+    source: Optional[str] = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
-    """Search promotions by title/content/terms, optionally filtered by category.
+    """Search promotions by title/content/terms, optionally filtered.
 
-    With a query the results are ranked by FTS5 relevance. With an empty query
-    every promotion (optionally within a category) is returned alphabetically,
-    so the homepage can show the full catalogue out of the box.
+    Results can be narrowed by ``category`` and/or ``source`` (the top-level
+    group, ``site`` or ``forum``). With a query the results are ranked by FTS5
+    relevance; with an empty query every matching promotion is returned
+    alphabetically, so the homepage can show the full catalogue out of the box.
     """
     match = _build_match_query(query) if query else None
     conn = _connect()
     try:
         if match:
             params: list[Any] = [match]
-            category_clause = ""
+            clauses = ""
             if category:
-                category_clause = "AND p.category = ?"
+                clauses += " AND p.category = ?"
                 params.append(category)
+            if source:
+                clauses += " AND p.source = ?"
+                params.append(source)
             params.append(limit)
+            prefixed = ", ".join(f"p.{col}" for col in _COLUMNS.split(", "))
             sql = f"""
-                SELECT p.id, p.url, p.title, p.category, p.content, p.terms, p.scraped_at
+                SELECT {prefixed}
                 FROM promotions_fts f
                 JOIN promotions p ON p.id = f.rowid
                 WHERE promotions_fts MATCH ?
-                {category_clause}
+                {clauses}
                 ORDER BY rank
                 LIMIT ?
             """
         else:
             params = []
-            category_clause = ""
+            conditions = []
             if category:
-                category_clause = "WHERE category = ?"
+                conditions.append("category = ?")
                 params.append(category)
+            if source:
+                conditions.append("source = ?")
+                params.append(source)
+            where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
             params.append(limit)
             sql = f"""
-                SELECT id, url, title, category, content, terms, scraped_at
+                SELECT {_COLUMNS}
                 FROM promotions
-                {category_clause}
+                {where}
                 ORDER BY title COLLATE NOCASE
                 LIMIT ?
             """
@@ -200,11 +255,7 @@ def get_promotion(promotion_id: int) -> Optional[dict[str, Any]]:
     conn = _connect()
     try:
         row = conn.execute(
-            """
-            SELECT id, url, title, category, content, terms, scraped_at
-            FROM promotions
-            WHERE id = ?
-            """,
+            f"SELECT {_COLUMNS} FROM promotions WHERE id = ?",
             (promotion_id,),
         ).fetchone()
         return dict(row) if row else None
@@ -212,13 +263,19 @@ def get_promotion(promotion_id: int) -> Optional[dict[str, Any]]:
         conn.close()
 
 
-def list_categories() -> list[str]:
-    """Return the distinct categories currently stored, sorted alphabetically."""
+def list_categories(source: Optional[str] = None) -> list[str]:
+    """Return the distinct categories stored, optionally within a source."""
     conn = _connect()
     try:
-        rows = conn.execute(
-            "SELECT DISTINCT category FROM promotions ORDER BY category"
-        ).fetchall()
+        if source:
+            rows = conn.execute(
+                "SELECT DISTINCT category FROM promotions WHERE source = ? ORDER BY category",
+                (source,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT DISTINCT category FROM promotions ORDER BY category"
+            ).fetchall()
         return [row["category"] for row in rows]
     finally:
         conn.close()

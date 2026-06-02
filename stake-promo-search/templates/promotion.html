@@ -14,10 +14,23 @@
         </a>
 
         <article class="bg-white rounded-xl shadow-sm p-6">
-            <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded">
-                {{ promotion.category }}
-            </span>
+            <div class="flex flex-wrap items-center gap-2">
+                {% if promotion.source == "forum" %}
+                <span class="inline-block bg-emerald-100 text-emerald-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded">Forum</span>
+                {% else %}
+                <span class="inline-block bg-sky-100 text-sky-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded">Site</span>
+                {% endif %}
+                <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded">
+                    {{ promotion.category }}
+                </span>
+            </div>
             <h1 class="text-2xl font-bold text-slate-900 mt-3">{{ promotion.title }}</h1>
+
+            {% if promotion.duration %}
+            <p class="mt-2 inline-flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-1 text-sm font-semibold text-amber-800">
+                🗓 {{ promotion.duration }}
+            </p>
+            {% endif %}
 
             <dl class="text-sm text-slate-500 mt-3 space-y-1">
                 <div>
@@ -37,8 +50,8 @@
 
             <section>
                 <h2 class="text-lg font-semibold text-slate-900 mb-2">Promotion details</h2>
-                {% if promotion.content %}
-                <div class="whitespace-pre-wrap leading-relaxed text-slate-700">{{ promotion.content }}</div>
+                {% if content_html %}
+                <div class="leading-relaxed text-slate-700">{{ content_html|safe }}</div>
                 {% else %}
                 <p class="text-slate-400 italic">No content was captured for this promotion.</p>
                 {% endif %}

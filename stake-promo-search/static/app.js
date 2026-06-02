@@ -5,6 +5,7 @@
 const form = document.getElementById("search-form");
 const queryInput = document.getElementById("query");
 const categorySelect = document.getElementById("category");
+const sourceSelect = document.getElementById("source");
 const resultsEl = document.getElementById("results");
 const emptyEl = document.getElementById("empty");
 const statusEl = document.getElementById("status");
@@ -27,20 +28,43 @@ function renderResult(item) {
   title.className = "font-semibold text-slate-900";
   title.textContent = item.title;
 
+  const badges = document.createElement("div");
+  badges.className = "flex items-center gap-2 shrink-0";
+
+  // Group badge (Site / Forum) so agents can tell the two sources apart.
+  if (item.source) {
+    const group = document.createElement("span");
+    const isForum = item.source === "forum";
+    group.className =
+      "text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded " +
+      (isForum ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700");
+    group.textContent = isForum ? "Forum" : "Site";
+    badges.appendChild(group);
+  }
+
   const badge = document.createElement("span");
   badge.className =
-    "shrink-0 bg-indigo-100 text-indigo-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded";
+    "bg-indigo-100 text-indigo-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded";
   badge.textContent = item.category;
+  badges.appendChild(badge);
 
   header.appendChild(title);
-  header.appendChild(badge);
+  header.appendChild(badges);
+  card.appendChild(header);
+
+  // Promotion duration (date range), visible before opening the promotion.
+  if (item.duration) {
+    const duration = document.createElement("p");
+    duration.className = "text-xs font-medium text-amber-700 mt-1";
+    duration.textContent = "🗓 " + item.duration;
+    card.appendChild(duration);
+  }
 
   const preview = document.createElement("p");
   preview.className = "text-sm text-slate-500 mt-2";
   preview.textContent = item.preview || "No preview available.";
-
-  card.appendChild(header);
   card.appendChild(preview);
+
   return card;
 }
 
@@ -50,6 +74,9 @@ async function runSearch() {
   params.set("q", queryInput.value.trim());
   if (categorySelect.value) {
     params.set("category", categorySelect.value);
+  }
+  if (sourceSelect.value) {
+    params.set("source", sourceSelect.value);
   }
 
   statusEl.textContent = "Searching…";
@@ -137,6 +164,7 @@ form.addEventListener("submit", (event) => {
 });
 
 categorySelect.addEventListener("change", runSearch);
+sourceSelect.addEventListener("change", runSearch);
 refreshBtn.addEventListener("click", triggerRefresh);
 
 // Show the full catalogue on first load.

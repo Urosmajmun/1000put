@@ -20,6 +20,12 @@ Before choosing an approach, the Stake promotion pages were analysed:
 
 - `https://stake.com/promotions/category/casino`
 - `https://stake.com/promotions/category/community`
+- `https://stake.com/promotions/category/poker`
+- `https://stake.com/promotions/category/esports`
+- `https://stake.com/promotions/category/sports`
+
+The set of categories scraped is defined in `CATEGORY_URLS` in `scraper.py`;
+add or remove entries there to change what gets collected.
 
 Findings:
 
@@ -124,7 +130,9 @@ the page reports progress and shows results automatically when it finishes.
 - **Category filter** — narrow results to `casino` or `community`.
 - **Result list** — each card shows the title, category and a short preview.
 - **Click a result** — opens the full promotion: complete content, terms &
-  conditions, the source URL, and when it was last updated.
+  conditions, the source URL, and when it was last updated. The text is
+  reflowed for readability (spacing after punctuation, one sentence per line);
+  this is display-only and never changes the stored data or search results.
 - **Refresh data** — re-scrapes the promotion pages and updates the database.
 
 ---

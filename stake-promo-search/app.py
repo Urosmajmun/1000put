@@ -10,6 +10,7 @@ then open http://localhost:8000 in a browser.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -101,8 +102,40 @@ def _run_refresh() -> None:
         refresh_state.finish(summary, error)
 
 
+# Punctuation glued to the next word, e.g. "bonus.Wagering". The match requires
+# a real word (>=2 word chars) or a closing bracket/quote before it and a letter
+# after, so numbers and abbreviations like "1.5" or "e.g." are left untouched.
+_GLUED_PUNCT = re.compile(r"(?<=[a-z0-9]{2})([.,!?;:])(?=[A-Za-z])")
+_GLUED_PUNCT_BRACKET = re.compile(r"""(?<=[)\]"'])([.,!?;:])(?=[A-Za-z])""")
+# A sentence boundary: ".", "!" or "?" after a word (or closing bracket/quote),
+# before a capital letter or opening parenthesis.
+_SENTENCE_BREAK = re.compile(r"(?<=[a-z0-9]{2}[.!?])[ \t]+(?=[A-Z(])")
+_SENTENCE_BREAK_BRACKET = re.compile(r"""(?<=[)\]"'][.!?])[ \t]+(?=[A-Z(])""")
+
+
+def format_promo_text(text: str) -> str:
+    """Tidy scraped promotion text for comfortable reading.
+
+    Adds the missing space after punctuation that is stuck to the next word and
+    starts each sentence on its own line, while preserving existing paragraph
+    breaks. Purely cosmetic and applied at display time, so it never alters the
+    stored data or the search index.
+    """
+    if not text:
+        return ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = _GLUED_PUNCT.sub(r"\1 ", text)
+    text = _GLUED_PUNCT_BRACKET.sub(r"\1 ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = _SENTENCE_BREAK.sub("\n", text)
+    text = _SENTENCE_BREAK_BRACKET.sub("\n", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def _preview(text: str, length: int = PREVIEW_LENGTH) -> str:
-    text = " ".join((text or "").split())
+    text = " ".join(format_promo_text(text).split())
     if len(text) <= length:
         return text
     return text[:length].rsplit(" ", 1)[0] + "…"
@@ -133,6 +166,9 @@ def promotion_detail(request: Request, promotion_id: int) -> HTMLResponse:
     promotion = database.get_promotion(promotion_id)
     if promotion is None:
         raise HTTPException(status_code=404, detail="Promotion not found")
+    # Format for readability at display time; stored data stays untouched.
+    promotion["content"] = format_promo_text(promotion["content"])
+    promotion["terms"] = format_promo_text(promotion["terms"])
     return templates.TemplateResponse(
         request,
         "promotion.html",

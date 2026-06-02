@@ -50,6 +50,31 @@ its title, body and terms.
 > (headings, main content containers, "terms"-labelled sections) and degrades
 > gracefully rather than crashing.
 
+### Cloudflare bot verification
+
+Stake is fronted by Cloudflare, which may show a "Performing security
+verification" interstitial. Classic *headless* browsers are blocked by this
+check, so the scraper:
+
+- **runs a real, visible browser by default** (headless is off), which passes
+  Cloudflare's standard verification the same way your own browser does;
+- **keeps a persistent browser profile** (`.pw-profile/`) so the clearance
+  cookie is reused across pages and runs;
+- **waits for the verification to clear on its own** before reading a page, and
+  **never stores the interstitial text** as if it were a promotion.
+
+It does **not** solve CAPTCHAs, forge tokens, or otherwise bypass the security
+check — it simply lets a normal browser complete the normal verification.
+
+You'll briefly see a Chromium window open during a refresh; that's expected.
+
+**Environment variables (optional):**
+
+| Variable | Default | Effect |
+| -------- | ------- | ------ |
+| `STAKE_HEADLESS` | `0` | Set to `1` to run headless (e.g. on a server). The bot check may then not clear. |
+| `STAKE_SLOWMO_MS` | `0` | Milliseconds to slow each browser action; can help on slow connections. |
+
 ---
 
 ## Setup
@@ -162,7 +187,9 @@ on first run.
 
 - **"Playwright is not installed" / browser launch error** — run
   `pip install -r requirements.txt` then `playwright install chromium`.
-- **Refresh finds 0 promotions** — Stake may be unreachable from your network
-  (region blocking) or has changed its markup. Confirm the pages load in your
-  own browser first.
+- **Refresh finds 0 promotions / "security verification" content** — Stake may
+  be unreachable from your network (region blocking) or Cloudflare's bot check
+  did not clear. Confirm the pages load in your own browser first, make sure you
+  are **not** running with `STAKE_HEADLESS=1`, and try the refresh again (the
+  saved profile in `.pw-profile/` makes later runs pass more easily).
 - **Port 8000 already in use** — edit the port at the bottom of `app.py`.

@@ -3,6 +3,9 @@ promotions.db
 promotions.db-wal
 promotions.db-shm
 
+# Playwright persistent browser profile (created at runtime)
+.pw-profile/
+
 # Python
 __pycache__/
 *.py[cod]

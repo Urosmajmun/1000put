@@ -13,8 +13,10 @@ pages. It does not attempt to bypass any security control or access restriction.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -43,9 +45,54 @@ SCROLL_PAUSE_S = 1.2
 DETAIL_DELAY_S = 0.8  # polite delay between detail-page visits
 MAX_PROMOTIONS_PER_CATEGORY = 200
 
+# How long to wait for Cloudflare's "verifying you are human" interstitial to
+# clear on its own. We do not solve or bypass the challenge — we simply let the
+# real browser complete the standard verification, exactly as a person would.
+CHALLENGE_TIMEOUT_S = 40
+
+# Whether to run the browser headless. Cloudflare's bot check blocks classic
+# headless Chromium, so we default to a real (visible) browser, which verifies
+# normally. Set STAKE_HEADLESS=1 to force headless (e.g. on a server with a
+# virtual display); challenges may then not clear.
+HEADLESS = os.environ.get("STAKE_HEADLESS", "0").strip().lower() in {"1", "true", "yes"}
+
+# Optional slow-motion (ms) between Playwright actions; can help on slow links.
+try:
+    SLOWMO_MS = int(os.environ.get("STAKE_SLOWMO_MS", "0"))
+except ValueError:
+    SLOWMO_MS = 0
+
+# Persistent browser profile directory, so the Cloudflare clearance cookie is
+# reused across pages and runs (normal browser cookie behaviour).
+PROFILE_DIR = Path(__file__).resolve().parent / ".pw-profile"
+
+# Text fragments that identify a Cloudflare / bot-verification interstitial
+# rather than real promotion content.
+_CHALLENGE_MARKERS = (
+    "just a moment",
+    "performing security verification",
+    "verify you are human",
+    "verifying you are human",
+    "verifies you are not a bot",
+    "security service to protect",
+    "protect against malicious bots",
+    "needs to review the security of your connection",
+    "checking your browser before accessing",
+    "enable javascript and cookies to continue",
+    "cf-browser-verification",
+    "challenge-platform",
+    "attention required",
+)
+
 
 class ScraperError(RuntimeError):
     """Raised when scraping cannot proceed (e.g. Playwright not installed)."""
+
+
+def _looks_like_challenge(*texts: str) -> bool:
+    """Return True if any text looks like a bot-verification interstitial."""
+    blob = " ".join(t.lower() for t in texts if t)
+    return any(marker in blob for marker in _CHALLENGE_MARKERS)
 
 
 # JavaScript evaluated in the listing page to collect promotion detail links.
@@ -176,10 +223,44 @@ def _auto_scroll(page: Any) -> None:
             break
 
 
+def _wait_for_verification(page: Any, timeout_s: int = CHALLENGE_TIMEOUT_S) -> bool:
+    """If a bot-verification interstitial is showing, wait for it to clear.
+
+    This does not solve or circumvent the challenge — it simply gives the real
+    browser time to complete the standard verification (which issues a normal
+    clearance cookie) before we read the page. Returns True once real content is
+    visible, or False if the interstitial is still up when the timeout expires.
+    """
+    deadline = time.monotonic() + timeout_s
+    warned = False
+    while True:
+        try:
+            title = page.title()
+        except Exception:  # noqa: BLE001
+            title = ""
+        try:
+            body = page.evaluate(
+                "() => document.body ? document.body.innerText.slice(0, 3000) : ''"
+            )
+        except Exception:  # noqa: BLE001
+            body = ""
+
+        if not _looks_like_challenge(title, body):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        if not warned:
+            logger.info("Security verification detected; waiting for it to clear…")
+            warned = True
+        page.wait_for_timeout(2000)
+
+
 def _collect_detail_urls(page: Any, listing_url: str) -> list[str]:
     """Load a category listing page and return unique promotion detail URLs."""
     logger.info("Loading listing page: %s", listing_url)
     page.goto(listing_url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+    if not _wait_for_verification(page):
+        logger.warning("Verification did not clear for %s; results may be partial", listing_url)
     try:
         page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
     except Exception:  # noqa: BLE001 - networkidle can time out on busy SPAs
@@ -202,6 +283,9 @@ def _scrape_detail(page: Any, url: str) -> Optional[dict[str, str]]:
     """Load a single promotion detail page and extract its structured content."""
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+        if not _wait_for_verification(page):
+            logger.warning("Security verification blocked %s; skipping", url)
+            return None
         try:
             page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
         except Exception:  # noqa: BLE001
@@ -215,6 +299,11 @@ def _scrape_detail(page: Any, url: str) -> Optional[dict[str, str]]:
     title = (data.get("title") or "").strip()
     content = (data.get("content") or "").strip()
     terms = (data.get("terms") or "").strip()
+
+    # Never store an interstitial page as if it were promotion content.
+    if _looks_like_challenge(title, content):
+        logger.warning("Got a verification page instead of content for %s; skipping", url)
+        return None
 
     if not title and not content:
         logger.warning("No usable content extracted from %s", url)
@@ -251,23 +340,35 @@ def scrape_all() -> dict[str, Any]:
     processed_urls: set[str] = set()
     started = time.monotonic()
 
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+
     try:
         with sync_playwright() as p:
             try:
-                browser = p.chromium.launch(headless=True)
+                # A persistent context behaves like a normal browser profile: it
+                # keeps cookies (including Cloudflare's clearance cookie) across
+                # pages and runs. Running non-headless by default lets the site's
+                # standard bot verification complete the way it would for a human.
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=str(PROFILE_DIR),
+                    headless=HEADLESS,
+                    slow_mo=SLOWMO_MS,
+                    user_agent=USER_AGENT,
+                    viewport={"width": 1366, "height": 900},
+                    locale="en-US",
+                    timezone_id="UTC",
+                    args=["--disable-blink-features=AutomationControlled"],
+                )
             except Exception as exc:  # noqa: BLE001
                 raise ScraperError(
                     "Could not launch Chromium. Install the browser binary with:\n"
                     "    playwright install chromium\n"
+                    "If you are on a server without a screen, also set "
+                    "STAKE_HEADLESS=1 (note: the bot check may then not clear).\n"
                     f"Original error: {exc}"
                 ) from exc
 
-            context = browser.new_context(
-                user_agent=USER_AGENT,
-                viewport={"width": 1366, "height": 900},
-                locale="en-US",
-            )
-            page = context.new_page()
+            page = context.pages[0] if context.pages else context.new_page()
             page.set_default_timeout(PAGE_TIMEOUT_MS)
 
             for category, listing_url in CATEGORY_URLS.items():
@@ -308,7 +409,7 @@ def scrape_all() -> dict[str, Any]:
                     )
                     time.sleep(DETAIL_DELAY_S)
 
-            browser.close()
+            context.close()
     except ScraperError:
         raise
     except Exception as exc:  # noqa: BLE001

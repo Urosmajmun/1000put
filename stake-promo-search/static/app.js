@@ -12,20 +12,49 @@ const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refresh-btn");
 const totalCountEl = document.getElementById("total-count");
 
+const categoriesByGroup = window.CATEGORIES_BY_GROUP || { site: [], forum: [] };
+
 let refreshPollTimer = null;
+
+/** Fill the category dropdown with the categories of the selected group.
+ *  With no group selected, show the union of every group's categories. */
+function populateCategories() {
+  const group = sourceSelect.value;
+  let cats;
+  if (group && categoriesByGroup[group]) {
+    cats = categoriesByGroup[group].slice();
+  } else {
+    cats = Array.from(
+      new Set([...(categoriesByGroup.site || []), ...(categoriesByGroup.forum || [])])
+    ).sort();
+  }
+
+  categorySelect.replaceChildren();
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = "All categories";
+  categorySelect.appendChild(all);
+  for (const c of cats) {
+    const opt = document.createElement("option");
+    opt.value = c;
+    opt.textContent = c.charAt(0).toUpperCase() + c.slice(1);
+    categorySelect.appendChild(opt);
+  }
+}
 
 /** Build a single result card using textContent to avoid any HTML injection. */
 function renderResult(item) {
   const card = document.createElement("a");
   card.href = `/promotion/${item.id}`;
   card.className =
-    "block bg-white rounded-xl shadow-sm p-4 hover:shadow-md transition-shadow border border-transparent hover:border-indigo-200";
+    "block bg-stake-panel rounded-xl border border-stake-border p-4 transition-colors " +
+    "hover:bg-stake-panel2 hover:border-stake-blue/60";
 
   const header = document.createElement("div");
-  header.className = "flex items-center justify-between gap-3";
+  header.className = "flex items-start justify-between gap-3";
 
   const title = document.createElement("h3");
-  title.className = "font-semibold text-slate-900";
+  title.className = "font-semibold text-white";
   title.textContent = item.title;
 
   const badges = document.createElement("div");
@@ -36,15 +65,15 @@ function renderResult(item) {
     const group = document.createElement("span");
     const isForum = item.source === "forum";
     group.className =
-      "text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded " +
-      (isForum ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700");
+      "text-xs font-bold uppercase tracking-wide px-2 py-1 rounded " +
+      (isForum ? "bg-stake-green/15 text-stake-green" : "bg-stake-blue/15 text-stake-blue");
     group.textContent = isForum ? "Forum" : "Site";
     badges.appendChild(group);
   }
 
   const badge = document.createElement("span");
   badge.className =
-    "bg-indigo-100 text-indigo-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded";
+    "bg-stake-panel2 text-stake-muted text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded border border-stake-border";
   badge.textContent = item.category;
   badges.appendChild(badge);
 
@@ -55,13 +84,13 @@ function renderResult(item) {
   // Promotion duration (date range), visible before opening the promotion.
   if (item.duration) {
     const duration = document.createElement("p");
-    duration.className = "text-xs font-medium text-amber-700 mt-1";
+    duration.className = "text-xs font-semibold text-stake-green mt-1.5";
     duration.textContent = "🗓 " + item.duration;
     card.appendChild(duration);
   }
 
   const preview = document.createElement("p");
-  preview.className = "text-sm text-slate-500 mt-2";
+  preview.className = "text-sm text-stake-muted mt-2 leading-relaxed";
   preview.textContent = item.preview || "No preview available.";
   card.appendChild(preview);
 
@@ -111,7 +140,7 @@ async function pollRefreshStatus() {
     totalCountEl.textContent = state.total_in_db;
 
     if (state.running) {
-      statusEl.textContent = "Refreshing promotions from stake.com… this can take a minute.";
+      statusEl.textContent = "Refreshing promotions from the Stake site and forum… this can take a minute.";
       return;
     }
 
@@ -164,8 +193,14 @@ form.addEventListener("submit", (event) => {
 });
 
 categorySelect.addEventListener("change", runSearch);
-sourceSelect.addEventListener("change", runSearch);
+// Changing the group rebuilds the category list (only that group's categories),
+// resets the category choice, then searches.
+sourceSelect.addEventListener("change", () => {
+  populateCategories();
+  runSearch();
+});
 refreshBtn.addEventListener("click", triggerRefresh);
 
-// Show the full catalogue on first load.
+// Build the initial category list and show the full catalogue on first load.
+populateCategories();
 runSearch();

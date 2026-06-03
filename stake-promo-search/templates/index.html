@@ -5,69 +5,109 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Stake Promotion Search</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Stake.com-inspired colour palette.
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        stake: {
+                            bg: "#0f212e",
+                            panel: "#1a2c38",
+                            panel2: "#213743",
+                            border: "#2f4553",
+                            muted: "#b1bad3",
+                            green: "#00e701",
+                            greenh: "#00c700",
+                            blue: "#1475e1",
+                            blueh: "#1268cb",
+                        },
+                    },
+                    fontFamily: {
+                        sans: ['"Inter"', "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
+                    },
+                },
+            },
+        };
+    </script>
     <link rel="stylesheet" href="/static/styles.css" />
 </head>
-<body class="bg-slate-100 text-slate-800 min-h-screen">
+<body class="bg-stake-bg text-white min-h-screen font-sans antialiased">
     <div class="max-w-4xl mx-auto px-4 py-8">
-        <header class="mb-6">
-            <h1 class="text-3xl font-bold text-slate-900">Stake Promotion Search</h1>
-            <p class="text-slate-500 mt-1">
-                Internal knowledge base for support agents.
-                <span id="total-count" class="font-medium">{{ total }}</span> promotions stored.
-            </p>
+        <header class="mb-6 flex items-center gap-3">
+            <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-stake-green text-stake-bg font-black text-xl shadow-lg shadow-stake-green/20">S</div>
+            <div>
+                <h1 class="text-2xl sm:text-3xl font-bold text-white tracking-tight">Stake Promotion Search</h1>
+                <p class="text-stake-muted text-sm mt-0.5">
+                    Internal knowledge base ·
+                    <span id="total-count" class="font-semibold text-white">{{ total }}</span> promotions stored
+                </p>
+            </div>
         </header>
 
-        <section class="bg-white rounded-xl shadow-sm p-5 mb-6">
-            <form id="search-form" class="flex flex-col sm:flex-row gap-3">
-                <input
-                    id="query"
-                    type="text"
-                    placeholder="Search promotions by keyword…"
-                    autocomplete="off"
-                    class="flex-1 border border-slate-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <select
-                    id="source"
-                    class="border border-slate-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    title="Group"
-                >
-                    <option value="">All groups</option>
-                    <option value="site">Site</option>
-                    <option value="forum">Forum</option>
-                </select>
-                <select
-                    id="category"
-                    class="border border-slate-300 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                    <option value="">All categories</option>
-                    {% for category in categories %}
-                    <option value="{{ category }}">{{ category|capitalize }}</option>
-                    {% endfor %}
-                </select>
-                <button
-                    type="submit"
-                    class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg px-5 py-2 transition-colors"
-                >
-                    Search
-                </button>
-                <button
-                    type="button"
-                    id="refresh-btn"
-                    class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded-lg px-5 py-2 transition-colors"
-                    title="Re-scrape promotions from the Stake site and forum"
-                >
-                    Refresh data
-                </button>
+        <section class="bg-stake-panel rounded-2xl border border-stake-border shadow-xl p-5 mb-6">
+            <form id="search-form" class="flex flex-col gap-3">
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <input
+                        id="query"
+                        type="text"
+                        placeholder="Search promotions by keyword…"
+                        autocomplete="off"
+                        class="flex-1 rounded-lg bg-stake-panel2 border border-stake-border px-4 py-2.5 text-white placeholder-stake-muted focus:outline-none focus:border-stake-blue focus:ring-2 focus:ring-stake-blue/40 transition-colors"
+                    />
+                    <button
+                        type="submit"
+                        class="rounded-lg bg-stake-green hover:bg-stake-greenh text-stake-bg font-bold px-6 py-2.5 transition-colors"
+                    >
+                        Search
+                    </button>
+                    <button
+                        type="button"
+                        id="refresh-btn"
+                        class="rounded-lg bg-stake-panel2 hover:bg-stake-border text-white font-semibold px-5 py-2.5 border border-stake-border transition-colors"
+                        title="Re-scrape promotions from the Stake site and forum"
+                    >
+                        Refresh data
+                    </button>
+                </div>
+
+                <div class="flex flex-col sm:flex-row gap-3">
+                    <label class="flex-1">
+                        <span class="block text-xs font-medium text-stake-muted mb-1">Group</span>
+                        <select
+                            id="source"
+                            class="w-full rounded-lg bg-stake-panel2 border border-stake-border px-3 py-2.5 text-white focus:outline-none focus:border-stake-blue focus:ring-2 focus:ring-stake-blue/40 transition-colors"
+                        >
+                            <option value="">All groups</option>
+                            <option value="site">Site</option>
+                            <option value="forum">Forum</option>
+                        </select>
+                    </label>
+                    <label class="flex-1">
+                        <span class="block text-xs font-medium text-stake-muted mb-1">Category</span>
+                        <select
+                            id="category"
+                            class="w-full rounded-lg bg-stake-panel2 border border-stake-border px-3 py-2.5 text-white focus:outline-none focus:border-stake-blue focus:ring-2 focus:ring-stake-blue/40 transition-colors"
+                        >
+                            <option value="">All categories</option>
+                        </select>
+                    </label>
+                </div>
             </form>
-            <p id="status" class="text-sm mt-3 text-slate-500"></p>
+            <p id="status" class="text-sm mt-3 text-stake-muted"></p>
         </section>
 
         <section>
             <div id="results" class="space-y-3"></div>
-            <p id="empty" class="hidden text-center text-slate-400 py-10">No promotions found.</p>
+            <p id="empty" class="hidden text-center text-stake-muted py-12">No promotions found.</p>
         </section>
     </div>
 
+    <script>
+        // Categories available within each group, used to build the dependent
+        // category dropdown on the client.
+        window.CATEGORIES_BY_GROUP = {{ categories_by_group | tojson }};
+    </script>
     <script src="/static/app.js"></script>
 </body>
 </html>

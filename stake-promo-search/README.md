@@ -25,7 +25,6 @@ No Docker, Redis, Elasticsearch, PostgreSQL, Celery, React or build step require
 Before choosing an approach, the Stake promotion pages were analysed:
 
 - `https://stake.com/promotions/category/casino`
-- `https://stake.com/promotions/category/community`
 - `https://stake.com/promotions/category/poker`
 - `https://stake.com/promotions/category/esports`
 - `https://stake.com/promotions/category/sports`
@@ -144,6 +143,8 @@ the page reports progress and shows results automatically when it finishes.
 - **Search bar** — type any keyword and press *Search* (or Enter). Matches
   promotion titles, body text and terms & conditions.
 - **Group filter** — switch between **All groups**, **Site** and **Forum**.
+  Picking a group repopulates the **Category** dropdown with only that group's
+  categories.
 - **Category filter** — narrow results to a specific category/board.
 - **Result list** — each card shows the title, a Site/Forum badge, the category,
   the promotion **duration** (date range) when available, and a short preview.
@@ -204,6 +205,8 @@ on first run.
 - Each promotion is stored with: **title, URL, category, source** (site/forum),
   **duration** (date range), **content, terms, scraped_at**. Existing databases
   are migrated automatically to add the new `source`/`duration` columns.
+- On startup, promotions whose category is no longer configured in `scraper.py`
+  (for example the removed `community` category) are pruned from the database.
 - **Duplicates are prevented** by a `UNIQUE` constraint on the promotion URL;
   re-scraping updates existing rows in place.
 - **Search uses SQLite FTS5** (with the `porter` stemmer) over title, content

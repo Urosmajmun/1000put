@@ -1,5 +1,12 @@
-/* Supplemental styles. Tailwind (loaded via CDN) handles the bulk of the
-   layout; these rules cover small refinements that are awkward as utilities. */
+/* Supplemental styles. Tailwind (loaded via CDN, configured with the Stake
+   colour palette) handles the bulk of the layout; these rules add the polish
+   that is awkward to express purely as utilities. */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+:root {
+    color-scheme: dark;
+}
 
 html {
     scroll-behavior: smooth;
@@ -8,6 +15,13 @@ html {
 body {
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    /* Subtle Stake-style radial glow at the top of the page. */
+    background-image: radial-gradient(
+        1200px 480px at 50% -10%,
+        rgba(20, 117, 225, 0.12),
+        transparent 70%
+    );
+    background-attachment: fixed;
 }
 
 /* Keep long, unbroken promotion URLs from overflowing their container. */
@@ -15,7 +29,47 @@ body {
     word-break: break-all;
 }
 
-/* Subtle focus ring fallback for browsers without Tailwind's ring utilities. */
+/* Dark, slim scrollbars that match the panels. */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #2f4553 transparent;
+}
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+    background-color: #2f4553;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+    background-color: #3b5566;
+}
+
+/* Style native dropdowns to fit the dark theme (option lists in particular). */
+select option {
+    background-color: #213743;
+    color: #ffffff;
+}
+
+/* Gentle entrance for result cards. */
+#results > a {
+    animation: cardin 0.18s ease-out both;
+}
+@keyframes cardin {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Focus ring fallback for browsers without Tailwind's ring utilities. */
 input:focus,
 select:focus,
 button:focus-visible {

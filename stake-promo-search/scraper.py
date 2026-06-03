@@ -43,7 +43,6 @@ SOURCE_FORUM = "forum"
 # Stake.com: category name -> listing page URL.
 CATEGORY_URLS: dict[str, str] = {
     "casino": "https://stake.com/promotions/category/casino",
-    "community": "https://stake.com/promotions/category/community",
     "poker": "https://stake.com/promotions/category/poker",
     "esports": "https://stake.com/promotions/category/esports",
     "sports": "https://stake.com/promotions/category/sports",

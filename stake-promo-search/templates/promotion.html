@@ -5,62 +5,87 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ promotion.title }} · Stake Promotion Search</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        stake: {
+                            bg: "#0f212e",
+                            panel: "#1a2c38",
+                            panel2: "#213743",
+                            border: "#2f4553",
+                            muted: "#b1bad3",
+                            green: "#00e701",
+                            greenh: "#00c700",
+                            blue: "#1475e1",
+                            blueh: "#1268cb",
+                        },
+                    },
+                    fontFamily: {
+                        sans: ['"Inter"', "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
+                    },
+                },
+            },
+        };
+    </script>
     <link rel="stylesheet" href="/static/styles.css" />
 </head>
-<body class="bg-slate-100 text-slate-800 min-h-screen">
+<body class="bg-stake-bg text-white min-h-screen font-sans antialiased">
     <div class="max-w-3xl mx-auto px-4 py-8">
-        <a href="/" class="inline-flex items-center text-indigo-600 hover:text-indigo-800 mb-6">
+        <a href="/" class="inline-flex items-center gap-1 text-stake-muted hover:text-white mb-6 transition-colors">
             &larr; Back to search
         </a>
 
-        <article class="bg-white rounded-xl shadow-sm p-6">
+        <article class="bg-stake-panel rounded-2xl border border-stake-border shadow-xl p-6">
             <div class="flex flex-wrap items-center gap-2">
                 {% if promotion.source == "forum" %}
-                <span class="inline-block bg-emerald-100 text-emerald-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded">Forum</span>
+                <span class="inline-block bg-stake-green/15 text-stake-green text-xs font-bold uppercase tracking-wide px-2 py-1 rounded">Forum</span>
                 {% else %}
-                <span class="inline-block bg-sky-100 text-sky-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded">Site</span>
+                <span class="inline-block bg-stake-blue/15 text-stake-blue text-xs font-bold uppercase tracking-wide px-2 py-1 rounded">Site</span>
                 {% endif %}
-                <span class="inline-block bg-indigo-100 text-indigo-700 text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded">
+                <span class="inline-block bg-stake-panel2 text-stake-muted text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded border border-stake-border">
                     {{ promotion.category }}
                 </span>
             </div>
-            <h1 class="text-2xl font-bold text-slate-900 mt-3">{{ promotion.title }}</h1>
+
+            <h1 class="text-2xl font-bold text-white mt-3">{{ promotion.title }}</h1>
 
             {% if promotion.duration %}
-            <p class="mt-2 inline-flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-1 text-sm font-semibold text-amber-800">
+            <p class="mt-3 inline-flex items-center gap-2 rounded-lg bg-stake-green/10 border border-stake-green/30 px-3 py-1.5 text-sm font-bold text-stake-green">
                 🗓 {{ promotion.duration }}
             </p>
             {% endif %}
 
-            <dl class="text-sm text-slate-500 mt-3 space-y-1">
+            <dl class="text-sm text-stake-muted mt-4 space-y-1">
                 <div>
-                    <dt class="inline font-medium">Source:</dt>
+                    <dt class="inline font-medium text-white">Source:</dt>
                     <dd class="inline">
                         <a href="{{ promotion.url }}" target="_blank" rel="noopener noreferrer"
-                           class="text-indigo-600 hover:underline break-all">{{ promotion.url }}</a>
+                           class="text-stake-blue hover:underline break-all">{{ promotion.url }}</a>
                     </dd>
                 </div>
                 <div>
-                    <dt class="inline font-medium">Last updated:</dt>
+                    <dt class="inline font-medium text-white">Last updated:</dt>
                     <dd class="inline">{{ promotion.scraped_at }}</dd>
                 </div>
             </dl>
 
-            <hr class="my-5 border-slate-200" />
+            <hr class="my-5 border-stake-border" />
 
             <section>
-                <h2 class="text-lg font-semibold text-slate-900 mb-2">Promotion details</h2>
+                <h2 class="text-lg font-semibold text-white mb-2">Promotion details</h2>
                 {% if content_html %}
-                <div class="leading-relaxed text-slate-700">{{ content_html|safe }}</div>
+                <div class="leading-relaxed text-slate-200">{{ content_html|safe }}</div>
                 {% else %}
-                <p class="text-slate-400 italic">No content was captured for this promotion.</p>
+                <p class="text-stake-muted italic">No content was captured for this promotion.</p>
                 {% endif %}
             </section>
 
             {% if promotion.terms %}
             <section class="mt-6">
-                <h2 class="text-lg font-semibold text-slate-900 mb-2">Terms &amp; Conditions</h2>
-                <div class="whitespace-pre-wrap leading-relaxed text-slate-600 text-sm bg-slate-50 border border-slate-200 rounded-lg p-4">{{ promotion.terms }}</div>
+                <h2 class="text-lg font-semibold text-white mb-2">Terms &amp; Conditions</h2>
+                <div class="whitespace-pre-wrap leading-relaxed text-stake-muted text-sm bg-stake-panel2 border border-stake-border rounded-lg p-4">{{ promotion.terms }}</div>
             </section>
             {% endif %}
         </article>

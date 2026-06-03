@@ -289,3 +289,38 @@ def count_promotions() -> int:
         return int(row["n"])
     finally:
         conn.close()
+
+
+def prune_to(allowed: dict[str, set[str]]) -> int:
+    """Delete stored promotions that are no longer part of the configured set.
+
+    ``allowed`` maps each source (``site``/``forum``) to the set of category
+    names that should be kept. Any row whose source is listed but whose category
+    is not in that source's allowed set is removed. Sources absent from the map
+    are left untouched. Returns the number of rows deleted.
+    """
+    if not allowed:
+        return 0
+    conn = _connect()
+    try:
+        clauses: list[str] = []
+        params: list[Any] = []
+        for source, categories in allowed.items():
+            cats = list(categories)
+            if cats:
+                placeholders = ",".join("?" for _ in cats)
+                clauses.append(f"(source = ? AND category NOT IN ({placeholders}))")
+                params.extend([source, *cats])
+            else:
+                # No categories allowed for this source -> drop all of its rows.
+                clauses.append("(source = ?)")
+                params.append(source)
+        sql = "DELETE FROM promotions WHERE " + " OR ".join(clauses)
+        cur = conn.execute(sql, params)
+        conn.commit()
+        deleted = cur.rowcount or 0
+        if deleted:
+            logger.info("Pruned %d obsolete promotion(s)", deleted)
+        return deleted
+    finally:
+        conn.close()

@@ -201,11 +201,11 @@ def content_to_html(text: str) -> str:
             i = j
         elif kind == "section":
             heading = html.escape(line.strip().rstrip(":"))
-            out.append(f'<p class="font-semibold text-slate-900 mt-4 mb-1">{heading}</p>')
+            out.append(f'<p class="font-semibold text-white mt-4 mb-1">{heading}</p>')
             i += 1
         else:
             out.append(
-                f'<p class="mb-2 text-slate-700 leading-relaxed">{html.escape(line.strip())}</p>'
+                f'<p class="mb-2 text-slate-200 leading-relaxed">{html.escape(line.strip())}</p>'
             )
             i += 1
     return "".join(out)
@@ -218,20 +218,33 @@ def _preview(text: str, length: int = PREVIEW_LENGTH) -> str:
     return text[:length].rsplit(" ", 1)[0] + "…"
 
 
+def _configured_categories() -> dict[str, set[str]]:
+    """Categories that should exist per group, derived from the scraper config."""
+    return {
+        scraper.SOURCE_SITE: set(scraper.CATEGORY_URLS.keys()),
+        scraper.SOURCE_FORUM: {scraper._forum_category(b) for b in scraper.FORUM_BOARD_URLS},
+    }
+
+
 @app.on_event("startup")
 def _on_startup() -> None:
     database.init_db()
+    # Drop promotions for categories no longer configured (e.g. 'community').
+    database.prune_to(_configured_categories())
     logger.info("Application ready. %d promotion(s) in database.", database.count_promotions())
 
 
 @app.get("/", response_class=HTMLResponse)
 def homepage(request: Request) -> HTMLResponse:
-    """Render the homepage with the search UI and current categories."""
+    """Render the homepage with the search UI and per-group categories."""
     return templates.TemplateResponse(
         request,
         "index.html",
         {
-            "categories": database.list_categories(),
+            "categories_by_group": {
+                "site": database.list_categories(scraper.SOURCE_SITE),
+                "forum": database.list_categories(scraper.SOURCE_FORUM),
+            },
             "total": database.count_promotions(),
         },
     )

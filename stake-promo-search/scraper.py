@@ -53,6 +53,12 @@ FORUM_BOARD_URLS: list[str] = [
     "https://stakecommunity.com/board/138-casino/",
     "https://stakecommunity.com/board/406-limited-time/",
     "https://stakecommunity.com/board/217-exclusive-vip-promotions/",
+    "https://stakecommunity.com/board/230-sportsbook/",
+    "https://stakecommunity.com/board/403-monthly-promotions/",
+    "https://stakecommunity.com/board/404-free-to-play/",
+    "https://stakecommunity.com/board/405-limited-time/",
+    "https://stakecommunity.com/board/232-community/",
+    "https://stakecommunity.com/board/402-esports/",
 ]
 
 # A realistic, current desktop User-Agent so pages render normally.

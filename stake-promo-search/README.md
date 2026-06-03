@@ -35,6 +35,12 @@ opening post only — comments are skipped):
 - `https://stakecommunity.com/board/138-casino/`
 - `https://stakecommunity.com/board/406-limited-time/`
 - `https://stakecommunity.com/board/217-exclusive-vip-promotions/`
+- `https://stakecommunity.com/board/230-sportsbook/`
+- `https://stakecommunity.com/board/403-monthly-promotions/`
+- `https://stakecommunity.com/board/404-free-to-play/`
+- `https://stakecommunity.com/board/405-limited-time/`
+- `https://stakecommunity.com/board/232-community/`
+- `https://stakecommunity.com/board/402-esports/`
 
 The sites/boards scraped are defined by `CATEGORY_URLS` and `FORUM_BOARD_URLS`
 in `scraper.py`; add or remove entries there to change what gets collected. By

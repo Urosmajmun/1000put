@@ -237,14 +237,19 @@ def _on_startup() -> None:
 @app.get("/", response_class=HTMLResponse)
 def homepage(request: Request) -> HTMLResponse:
     """Render the homepage with the search UI and per-group categories."""
+    configured = _configured_categories()
+    # Drive the dropdown from the configured categories (always present) unioned
+    # with anything currently stored, so each group lists its categories even
+    # before a scrape has populated the database.
+    categories_by_group = {
+        "site": sorted(configured["site"] | set(database.list_categories("site"))),
+        "forum": sorted(configured["forum"] | set(database.list_categories("forum"))),
+    }
     return templates.TemplateResponse(
         request,
         "index.html",
         {
-            "categories_by_group": {
-                "site": database.list_categories(scraper.SOURCE_SITE),
-                "forum": database.list_categories(scraper.SOURCE_FORUM),
-            },
+            "categories_by_group": categories_by_group,
             "total": database.count_promotions(),
         },
     )

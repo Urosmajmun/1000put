@@ -24,7 +24,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import urldefrag, urljoin, urlparse
@@ -59,7 +59,13 @@ FORUM_BOARD_URLS: list[str] = [
     "https://stakecommunity.com/board/405-limited-time/",
     "https://stakecommunity.com/board/232-community/",
     "https://stakecommunity.com/board/402-esports/",
+    "https://stakecommunity.com/board/382-past-events/",
 ]
+
+# Forum boards whose promotions are always finished (archives of past events).
+FORUM_FINISHED_BOARDS: set[str] = {
+    "https://stakecommunity.com/board/382-past-events/",
+}
 
 # A realistic, current desktop User-Agent so pages render normally.
 USER_AGENT = (
@@ -324,6 +330,45 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# Matches a single "Month D, YYYY" date inside a duration string.
+_DATE_RE = re.compile(
+    r"(January|February|March|April|May|June|July|August|September|October|"
+    r"November|December)\s+(\d{1,2}),\s*(\d{4})",
+    re.IGNORECASE,
+)
+_MONTHS = {
+    m.lower(): i
+    for i, m in enumerate(
+        [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ],
+        start=1,
+    )
+}
+
+
+def _parse_end_date(duration: str) -> str:
+    """Return the promotion's end date as ISO ``YYYY-MM-DD``, or '' if unknown.
+
+    The duration is normalised as "Month D, YYYY - Month D, YYYY"; the *last*
+    date in the string is taken as the end date (a single date is used as-is).
+    """
+    if not duration:
+        return ""
+    matches = _DATE_RE.findall(duration)
+    if not matches:
+        return ""
+    month_name, day, year = matches[-1]
+    month = _MONTHS.get(month_name.lower())
+    if not month:
+        return ""
+    try:
+        return date(int(year), month, int(day)).isoformat()
+    except ValueError:
+        return ""
+
+
 def _normalise_url(href: str) -> Optional[str]:
     """Keep only same-origin Stake.com promotion detail URLs, sans query/hash."""
     if not href:
@@ -548,8 +593,14 @@ def _process_listing(
     extract_js: str,
     processed: set[str],
     counts: dict[str, int],
+    finished: bool = False,
 ) -> None:
-    """Collect and store every promotion linked from one listing/board page."""
+    """Collect and store every promotion linked from one listing/board page.
+
+    ``finished`` marks the whole listing as finished (used for the forum's past
+    events archive). Site promotions are not flagged here — their finished state
+    is derived from the parsed end date at query time.
+    """
     try:
         urls = _collect_listing_urls(page, listing_url, collect_js, normaliser)
     except Exception as exc:  # noqa: BLE001
@@ -572,6 +623,8 @@ def _process_listing(
             category=category,
             source=source,
             duration=detail["duration"],
+            ends_at=_parse_end_date(detail["duration"]),
+            finished=finished,
             content=detail["content"],
             terms=detail["terms"],
             scraped_at=_now_iso(),
@@ -656,6 +709,7 @@ def scrape_all() -> dict[str, Any]:
             # Group 2: the Stake Community forum.
             for board_url in FORUM_BOARD_URLS:
                 category = _forum_category(board_url)
+                board_finished = board_url in FORUM_FINISHED_BOARDS
                 for page_number in range(1, MAX_FORUM_PAGES + 1):
                     _process_listing(
                         page,
@@ -667,6 +721,7 @@ def scrape_all() -> dict[str, Any]:
                         extract_js=_EXTRACT_FORUM_JS,
                         processed=processed_urls,
                         counts=counts,
+                        finished=board_finished,
                     )
 
             context.close()

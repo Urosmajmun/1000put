@@ -11,10 +11,23 @@ const emptyEl = document.getElementById("empty");
 const statusEl = document.getElementById("status");
 const refreshBtn = document.getElementById("refresh-btn");
 const totalCountEl = document.getElementById("total-count");
+const statusButtons = Array.from(document.querySelectorAll(".status-btn"));
 
 const categoriesByGroup = window.CATEGORIES_BY_GROUP || { site: [], forum: [] };
 
 let refreshPollTimer = null;
+let currentStatus = "active"; // default view: active promotions
+
+/** Reflect the selected status on the segmented toggle. */
+function updateStatusButtons() {
+  for (const b of statusButtons) {
+    const selected = b.dataset.status === currentStatus;
+    b.classList.toggle("bg-stake-green", selected);
+    b.classList.toggle("text-stake-bg", selected);
+    b.classList.toggle("text-stake-muted", !selected);
+    b.classList.toggle("hover:text-white", !selected);
+  }
+}
 
 /** Fill the category dropdown with the categories of the selected group.
  *  With no group selected, show the union of every group's categories. */
@@ -77,6 +90,14 @@ function renderResult(item) {
   badge.textContent = item.category;
   badges.appendChild(badge);
 
+  // Finished / active status badge, shown next to every promotion.
+  const statusBadge = document.createElement("span");
+  statusBadge.className =
+    "text-xs font-bold uppercase tracking-wide px-2 py-1 rounded " +
+    (item.finished ? "bg-red-500/15 text-red-400" : "bg-stake-green/15 text-stake-green");
+  statusBadge.textContent = item.finished ? "Finished" : "Active";
+  badges.appendChild(statusBadge);
+
   header.appendChild(title);
   header.appendChild(badges);
   card.appendChild(header);
@@ -106,6 +127,9 @@ async function runSearch() {
   }
   if (sourceSelect.value) {
     params.set("source", sourceSelect.value);
+  }
+  if (currentStatus) {
+    params.set("status", currentStatus);
   }
 
   statusEl.textContent = "Searching…";
@@ -201,6 +225,16 @@ sourceSelect.addEventListener("change", () => {
 });
 refreshBtn.addEventListener("click", triggerRefresh);
 
-// Build the initial category list and show the full catalogue on first load.
+// Status toggle: Active / Finished / All.
+for (const b of statusButtons) {
+  b.addEventListener("click", () => {
+    currentStatus = b.dataset.status;
+    updateStatusButtons();
+    runSearch();
+  });
+}
+
+// Build the initial category list, set the default status, and show results.
 populateCategories();
+updateStatusButtons();
 runSearch();

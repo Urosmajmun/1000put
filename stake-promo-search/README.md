@@ -41,11 +41,24 @@ opening post only — comments are skipped):
 - `https://stakecommunity.com/board/405-limited-time/`
 - `https://stakecommunity.com/board/232-community/`
 - `https://stakecommunity.com/board/402-esports/`
+- `https://stakecommunity.com/board/382-past-events/` (always marked **finished**)
 
 The sites/boards scraped are defined by `CATEGORY_URLS` and `FORUM_BOARD_URLS`
 in `scraper.py`; add or remove entries there to change what gets collected. By
 default only the first page of each forum board is scraped (set
 `STAKE_FORUM_PAGES` to scrape more).
+
+### Active vs. finished promotions
+
+Each promotion shows an **Active** or **Finished** badge, and the homepage has an
+**Active / Finished / All** status toggle (default: Active).
+
+- **Site** promotions become *finished* automatically once the end date parsed
+  from their duration (e.g. `… - December 31, 2026`) has passed. Finished site
+  promotions stay searchable for **30 days** after they end, then are purged
+  (configurable via `SITE_RETENTION_DAYS` in `app.py`).
+- **Forum** promotions from the *past events* board are always finished and are
+  kept indefinitely (a permanent archive).
 
 Findings:
 
@@ -170,7 +183,7 @@ the page reports progress and shows results automatically when it finishes.
 | ------------- | ----------- |
 | `GET /` | Homepage (search UI) |
 | `GET /promotion/{id}` | Full promotion details page |
-| `GET /api/search?q=&category=&source=&limit=` | JSON keyword search (`source` is `site` or `forum`) |
+| `GET /api/search?q=&category=&source=&status=&limit=` | JSON keyword search (`source` is `site`/`forum`, `status` is `active`/`finished`) |
 | `POST /api/refresh` | Start a background re-scrape |
 | `GET /api/refresh/status` | Progress / result of the last refresh |
 

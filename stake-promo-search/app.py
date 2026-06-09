@@ -13,7 +13,7 @@ import html
 import logging
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -39,6 +39,17 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 PREVIEW_LENGTH = 220
+
+# How long finished Stake.com promotions are kept before being purged.
+SITE_RETENTION_DAYS = 30
+
+
+def _is_finished(row: dict[str, Any], today: str) -> bool:
+    """Whether a promotion has finished: explicitly flagged or end date passed."""
+    if row.get("finished"):
+        return True
+    ends_at = row.get("ends_at") or ""
+    return bool(ends_at) and ends_at < today
 
 
 class RefreshState:
@@ -93,6 +104,7 @@ def _run_refresh() -> None:
     error: Optional[str] = None
     try:
         summary = scraper.scrape_all()
+        _run_maintenance()
     except scraper.ScraperError as exc:
         error = str(exc)
         logger.error("Refresh failed: %s", exc)
@@ -226,11 +238,18 @@ def _configured_categories() -> dict[str, set[str]]:
     }
 
 
+def _run_maintenance() -> None:
+    """Prune obsolete categories and purge long-finished site promotions."""
+    database.prune_to(_configured_categories())
+    database.purge_expired_site(SITE_RETENTION_DAYS)
+
+
 @app.on_event("startup")
 def _on_startup() -> None:
     database.init_db()
-    # Drop promotions for categories no longer configured (e.g. 'community').
-    database.prune_to(_configured_categories())
+    # Drop promotions for categories no longer configured (e.g. 'community') and
+    # remove site promotions that finished more than a month ago.
+    _run_maintenance()
     logger.info("Application ready. %d promotion(s) in database.", database.count_promotions())
 
 
@@ -265,6 +284,7 @@ def promotion_detail(request: Request, promotion_id: int) -> HTMLResponse:
     # for readability. Display-time only — stored data and the index are unchanged.
     content_html = content_to_html(promotion["content"])
     promotion["terms"] = format_promo_text(promotion["terms"])
+    promotion["is_finished"] = _is_finished(promotion, date.today().isoformat())
     return templates.TemplateResponse(
         request,
         "promotion.html",
@@ -277,13 +297,21 @@ def api_search(
     q: str = Query("", description="Keyword query"),
     category: Optional[str] = Query(None, description="Optional category filter"),
     source: Optional[str] = Query(None, description="Group filter: 'site' or 'forum'"),
+    status: Optional[str] = Query(None, description="Status filter: 'active' or 'finished'"),
     limit: int = Query(100, ge=1, le=500),
 ) -> JSONResponse:
     """Keyword search across promotion title, body and terms."""
     category_filter = category or None
     source_filter = source if source in {"site", "forum"} else None
+    status_filter = status if status in {"active", "finished"} else None
+    today = date.today().isoformat()
     results = database.search(
-        q.strip(), category=category_filter, source=source_filter, limit=limit
+        q.strip(),
+        category=category_filter,
+        source=source_filter,
+        status=status_filter,
+        today=today,
+        limit=limit,
     )
     payload = [
         {
@@ -292,6 +320,7 @@ def api_search(
             "category": row["category"],
             "source": row["source"],
             "duration": row["duration"],
+            "finished": _is_finished(row, today),
             "url": row["url"],
             "preview": _preview(row["content"]) or _preview(row["terms"]),
             "scraped_at": row["scraped_at"],
@@ -303,6 +332,7 @@ def api_search(
             "query": q,
             "category": category_filter,
             "source": source_filter,
+            "status": status_filter,
             "count": len(payload),
             "results": payload,
         }

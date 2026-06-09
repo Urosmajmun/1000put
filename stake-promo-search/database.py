@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -27,6 +28,8 @@ CREATE TABLE IF NOT EXISTS promotions (
     category    TEXT    NOT NULL,
     source      TEXT    NOT NULL DEFAULT 'site',
     duration    TEXT    NOT NULL DEFAULT '',
+    ends_at     TEXT    NOT NULL DEFAULT '',
+    finished    INTEGER NOT NULL DEFAULT 0,
     content     TEXT    NOT NULL DEFAULT '',
     terms       TEXT    NOT NULL DEFAULT '',
     scraped_at  TEXT    NOT NULL
@@ -115,6 +118,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "duration" not in existing:
         conn.execute("ALTER TABLE promotions ADD COLUMN duration TEXT NOT NULL DEFAULT ''")
         logger.info("Migrated database: added 'duration' column")
+    if "ends_at" not in existing:
+        conn.execute("ALTER TABLE promotions ADD COLUMN ends_at TEXT NOT NULL DEFAULT ''")
+        logger.info("Migrated database: added 'ends_at' column")
+    if "finished" not in existing:
+        conn.execute("ALTER TABLE promotions ADD COLUMN finished INTEGER NOT NULL DEFAULT 0")
+        logger.info("Migrated database: added 'finished' column")
 
 
 def upsert_promotion(
@@ -127,11 +136,16 @@ def upsert_promotion(
     content: str,
     terms: str,
     scraped_at: str,
+    ends_at: str = "",
+    finished: bool = False,
 ) -> bool:
     """Insert a promotion or update it in place when the URL already exists.
 
-    Returns ``True`` if a new row was inserted, ``False`` if an existing row
-    was updated. The UNIQUE constraint on ``url`` guarantees no duplicates.
+    ``ends_at`` is the promotion's end date (ISO ``YYYY-MM-DD``) parsed from the
+    duration, used to decide whether a dated promotion has finished. ``finished``
+    forces the finished state regardless of date (used for the forum's past
+    events board). Returns ``True`` if a new row was inserted, ``False`` if an
+    existing row was updated. The UNIQUE constraint on ``url`` prevents dupes.
     """
     conn = _connect()
     try:
@@ -140,14 +154,18 @@ def upsert_promotion(
         conn.execute(
             """
             INSERT INTO promotions
-                (url, title, category, source, duration, content, terms, scraped_at)
+                (url, title, category, source, duration, ends_at, finished,
+                 content, terms, scraped_at)
             VALUES
-                (:url, :title, :category, :source, :duration, :content, :terms, :scraped_at)
+                (:url, :title, :category, :source, :duration, :ends_at, :finished,
+                 :content, :terms, :scraped_at)
             ON CONFLICT(url) DO UPDATE SET
                 title      = excluded.title,
                 category   = excluded.category,
                 source     = excluded.source,
                 duration   = excluded.duration,
+                ends_at    = excluded.ends_at,
+                finished   = excluded.finished,
                 content    = excluded.content,
                 terms      = excluded.terms,
                 scraped_at = excluded.scraped_at
@@ -158,6 +176,8 @@ def upsert_promotion(
                 "category": category,
                 "source": source,
                 "duration": duration,
+                "ends_at": ends_at,
+                "finished": 1 if finished else 0,
                 "content": content,
                 "terms": terms,
                 "scraped_at": scraped_at,
@@ -182,54 +202,84 @@ def _build_match_query(query: str) -> Optional[str]:
     return " ".join(f'"{token}"*' for token in tokens)
 
 
-_COLUMNS = "id, url, title, category, source, duration, content, terms, scraped_at"
+_COLUMNS = (
+    "id, url, title, category, source, duration, ends_at, finished, "
+    "content, terms, scraped_at"
+)
+
+
+def _finished_expr(prefix: str) -> str:
+    """SQL expression that is true when a promotion has finished.
+
+    A promotion is finished if it is explicitly flagged (e.g. forum past events)
+    or its end date is strictly before today. ``prefix`` is the table alias
+    (``"p."`` for the FTS join, ``""`` for the plain table).
+    """
+    return f"({prefix}finished = 1 OR ({prefix}ends_at <> '' AND {prefix}ends_at < ?))"
 
 
 def search(
     query: str,
     category: Optional[str] = None,
     source: Optional[str] = None,
+    status: Optional[str] = None,
+    today: Optional[str] = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
     """Search promotions by title/content/terms, optionally filtered.
 
-    Results can be narrowed by ``category`` and/or ``source`` (the top-level
-    group, ``site`` or ``forum``). With a query the results are ranked by FTS5
+    Results can be narrowed by ``category``, ``source`` (the top-level group,
+    ``site`` or ``forum``) and ``status`` (``active``/``finished``; anything else
+    returns both). ``today`` is the ISO date used to evaluate finished state and
+    defaults to the current date. With a query the results are ranked by FTS5
     relevance; with an empty query every matching promotion is returned
     alphabetically, so the homepage can show the full catalogue out of the box.
     """
     match = _build_match_query(query) if query else None
+    today = today or date.today().isoformat()
     conn = _connect()
     try:
         if match:
+            prefix = "p."
+            where = ["promotions_fts MATCH ?"]
             params: list[Any] = [match]
-            clauses = ""
             if category:
-                clauses += " AND p.category = ?"
+                where.append(f"{prefix}category = ?")
                 params.append(category)
             if source:
-                clauses += " AND p.source = ?"
+                where.append(f"{prefix}source = ?")
                 params.append(source)
+            if status == "finished":
+                where.append(_finished_expr(prefix))
+                params.append(today)
+            elif status == "active":
+                where.append(f"NOT {_finished_expr(prefix)}")
+                params.append(today)
             params.append(limit)
-            prefixed = ", ".join(f"p.{col}" for col in _COLUMNS.split(", "))
+            columns = ", ".join(f"{prefix}{col}" for col in _COLUMNS.split(", "))
             sql = f"""
-                SELECT {prefixed}
+                SELECT {columns}
                 FROM promotions_fts f
                 JOIN promotions p ON p.id = f.rowid
-                WHERE promotions_fts MATCH ?
-                {clauses}
+                WHERE {" AND ".join(where)}
                 ORDER BY rank
                 LIMIT ?
             """
         else:
+            conditions: list[str] = []
             params = []
-            conditions = []
             if category:
                 conditions.append("category = ?")
                 params.append(category)
             if source:
                 conditions.append("source = ?")
                 params.append(source)
+            if status == "finished":
+                conditions.append(_finished_expr(""))
+                params.append(today)
+            elif status == "active":
+                conditions.append(f"NOT {_finished_expr('')}")
+                params.append(today)
             where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
             params.append(limit)
             sql = f"""
@@ -287,6 +337,34 @@ def count_promotions() -> int:
     try:
         row = conn.execute("SELECT COUNT(*) AS n FROM promotions").fetchone()
         return int(row["n"])
+    finally:
+        conn.close()
+
+
+def purge_expired_site(retention_days: int = 30, today: Optional[str] = None) -> int:
+    """Delete finished Stake.com (site) promotions older than the retention window.
+
+    A finished site promotion (its end date in the past) is kept for
+    ``retention_days`` days after it ends, then removed. Forum promotions —
+    including the past-events archive — are never purged here. Returns the number
+    of rows deleted.
+    """
+    today_date = date.fromisoformat(today) if today else date.today()
+    cutoff = (today_date - timedelta(days=retention_days)).isoformat()
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            """
+            DELETE FROM promotions
+            WHERE source = 'site' AND ends_at <> '' AND ends_at < ?
+            """,
+            (cutoff,),
+        )
+        conn.commit()
+        deleted = cur.rowcount or 0
+        if deleted:
+            logger.info("Purged %d site promotion(s) finished before %s", deleted, cutoff)
+        return deleted
     finally:
         conn.close()
 

@@ -29,7 +29,7 @@
             },
         };
     </script>
-    <link rel="stylesheet" href="/static/styles.css?v=3" />
+    <link rel="stylesheet" href="/static/styles.css?v=4" />
 </head>
 <body class="bg-stake-bg text-white min-h-screen font-sans antialiased">
     <div class="max-w-3xl mx-auto px-4 py-8">
@@ -47,6 +47,11 @@
                 <span class="inline-block bg-stake-panel2 text-stake-muted text-xs font-semibold uppercase tracking-wide px-2 py-1 rounded border border-stake-border">
                     {{ promotion.category }}
                 </span>
+                {% if promotion.is_finished %}
+                <span class="inline-block bg-red-500/15 text-red-400 text-xs font-bold uppercase tracking-wide px-2 py-1 rounded">Finished</span>
+                {% else %}
+                <span class="inline-block bg-stake-green/15 text-stake-green text-xs font-bold uppercase tracking-wide px-2 py-1 rounded">Active</span>
+                {% endif %}
             </div>
 
             <h1 class="text-2xl font-bold text-white mt-3">{{ promotion.title }}</h1>

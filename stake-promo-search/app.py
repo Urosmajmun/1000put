@@ -216,6 +216,34 @@ def _explode_bullets(lines: list[str]) -> list[str]:
     return out
 
 
+_NUM_MARKER_RE = re.compile(r"(\d+)[.)]\s+")
+
+
+def _explode_numbered(lines: list[str]) -> list[str]:
+    """Split a line that packs a whole numbered list ("1. a 2. b 3. c") together.
+
+    Only lines that begin with a number marker and whose markers are sequential
+    (1, 2, 3, …) are split, so prices/decimals inside a single item are left
+    alone. (Real browsers put each <li> on its own line; this is a safety net.)
+    """
+    out: list[str] = []
+    for line in lines:
+        if not re.match(r"\s*\d+[.)]\s", line):
+            out.append(line)
+            continue
+        markers = list(_NUM_MARKER_RE.finditer(line))
+        nums = [int(m.group(1)) for m in markers]
+        if len(markers) >= 2 and nums == list(range(nums[0], nums[0] + len(nums))):
+            bounds = [m.start() for m in markers] + [len(line)]
+            for a, b in zip(bounds, bounds[1:]):
+                segment = line[a:b].strip()
+                if segment:
+                    out.append(segment)
+        else:
+            out.append(line)
+    return out
+
+
 def _list_item(line: str) -> tuple[Optional[str], str]:
     """Classify a line as an ordered ('ol') / unordered ('ul') list item, or not."""
     m = _NUMBERED_RE.match(line)
@@ -269,7 +297,7 @@ def content_to_html(text: str) -> str:
     if not formatted:
         return ""
 
-    lines = _explode_bullets(formatted.split("\n"))
+    lines = _explode_numbered(_explode_bullets(formatted.split("\n")))
     out: list[str] = []
     i, n = 0, len(lines)
     while i < n:

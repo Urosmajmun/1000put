@@ -182,6 +182,27 @@ _JS_HELPERS = r"""
         });
     };
 
+    // Prefix list items with a marker so list structure survives innerText
+    // (which drops CSS list bullets). Unordered -> "• ", ordered -> "1. ".
+    const markLists = (root) => {
+        root.querySelectorAll('ul').forEach((ul) => {
+            Array.from(ul.children).forEach((li) => {
+                if (li.tagName === 'LI') {
+                    li.insertBefore(document.createTextNode('• '), li.firstChild);
+                }
+            });
+        });
+        root.querySelectorAll('ol').forEach((ol) => {
+            let i = 1;
+            Array.from(ol.children).forEach((li) => {
+                if (li.tagName === 'LI') {
+                    li.insertBefore(document.createTextNode(i + '. '), li.firstChild);
+                    i += 1;
+                }
+            });
+        });
+    };
+
     const extractDuration = (text) => {
         const m = DATE_RANGE.exec(text || '');
         if (!m) return '';
@@ -275,6 +296,7 @@ _EXTRACT_JS = r"""
 
     const clone = container.cloneNode(true);
     stripNoise(clone);
+    markLists(clone);
     const content = clean(clone.innerText);
     const terms = extractTerms(clone);
 
@@ -313,6 +335,7 @@ _EXTRACT_FORUM_JS = r"""
         '.ipsComment_controls,.cAuthorPane,.ipsItemControls'
     ).forEach((n) => n.remove());
     stripNoise(clone);
+    markLists(clone);
 
     const content = clean(clone.innerText);
     const terms = extractTerms(clone);

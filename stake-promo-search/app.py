@@ -192,6 +192,30 @@ def _split_heading(line: str) -> tuple[str, str]:
     return stripped, ""
 
 
+def _explode_bullets(lines: list[str]) -> list[str]:
+    """Split lines that pack several "•" bullets together onto one line.
+
+    Scraped lists often arrive as a single line like "• Cash • Spins • Bonus"
+    (or "Rewards: • Cash • Spins"). We split on the bullet glyph so each becomes
+    its own item; any leading text before the first bullet is kept as-is (so a
+    heading or intro sharing the line is preserved).
+    """
+    out: list[str] = []
+    for line in lines:
+        if "•" not in line:
+            out.append(line)
+            continue
+        parts = line.split("•")
+        head = parts[0].strip()
+        if head:
+            out.append(head)
+        for part in parts[1:]:
+            part = part.strip()
+            if part:
+                out.append("• " + part)
+    return out
+
+
 def _list_item(line: str) -> tuple[Optional[str], str]:
     """Classify a line as an ordered ('ol') / unordered ('ul') list item, or not."""
     m = _NUMBERED_RE.match(line)
@@ -220,10 +244,12 @@ def _render_body(lines: list[str]) -> str:
                 k2, text2 = _list_item(lines[i])
                 if k2 != kind:
                     break
-                items.append(f"<li>{html.escape(text2)}</li>")
                 i += 1
-            css = "promo-steps" if kind == "ol" else "promo-list"
-            out.append(f'<{kind} class="{css}">{"".join(items)}</{kind}>')
+                if text2:  # skip empty bullets like a lone "- "
+                    items.append(f"<li>{html.escape(text2)}</li>")
+            if items:
+                css = "promo-steps" if kind == "ol" else "promo-list"
+                out.append(f'<{kind} class="{css}">{"".join(items)}</{kind}>')
         else:
             out.append(f"<p>{html.escape(lines[i].strip())}</p>")
             i += 1
@@ -243,7 +269,7 @@ def content_to_html(text: str) -> str:
     if not formatted:
         return ""
 
-    lines = formatted.split("\n")
+    lines = _explode_bullets(formatted.split("\n"))
     out: list[str] = []
     i, n = 0, len(lines)
     while i < n:

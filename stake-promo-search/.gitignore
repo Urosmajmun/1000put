@@ -17,6 +17,3 @@ env/
 .DS_Store
 .idea/
 .vscode/
-
-# Generated promotion screenshots
-static/screenshots/*.png

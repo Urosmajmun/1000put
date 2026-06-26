@@ -107,9 +107,6 @@ except ValueError:
 # reused across pages and runs (normal browser cookie behaviour).
 PROFILE_DIR = Path(__file__).resolve().parent / ".pw-profile"
 
-# Where promotion screenshots are saved (served by the app under /static).
-SCREENSHOT_DIR = Path(__file__).resolve().parent / "static" / "screenshots"
-
 # Text fragments that identify a Cloudflare / bot-verification interstitial
 # rather than real promotion content.
 _CHALLENGE_MARKERS = (
@@ -495,50 +492,6 @@ def _auto_scroll(page: Any) -> None:
             break
 
 
-_SCREENSHOT_SELECTORS = ("main", "article", '[class*="promotion"]', '[class*="content"]')
-
-
-def _capture_screenshot(page: Any, title: str, content: str, terms: str) -> str:
-    """Save a screenshot of the promotion and return its filename (or '').
-
-    The file is named by the promotion's content hash, so an unchanged promotion
-    reuses the same image (no duplicates) and each renewed version gets its own.
-    Best-effort: any failure simply yields no screenshot.
-    """
-    filename = f"{database._content_hash(title, content, terms)}.png"
-    dest = SCREENSHOT_DIR / filename
-    if dest.exists():
-        return filename
-    try:
-        SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-        # Load lazy images, then return to the top before capturing.
-        _auto_scroll(page)
-        page.evaluate("() => window.scrollTo(0, 0)")
-        page.wait_for_timeout(500)
-
-        target = None
-        for selector in _SCREENSHOT_SELECTORS:
-            element = page.query_selector(selector)
-            if element is None:
-                continue
-            try:
-                box = element.bounding_box()
-            except Exception:  # noqa: BLE001
-                box = None
-            if box and box.get("height", 0) > 80:
-                target = element
-                break
-
-        if target is not None:
-            target.screenshot(path=str(dest))
-        else:
-            page.screenshot(path=str(dest), full_page=True)
-        return filename
-    except Exception as exc:  # noqa: BLE001 - screenshots are non-essential
-        logger.warning("Could not capture screenshot for %s: %s", title[:50], exc)
-        return ""
-
-
 def _wait_for_verification(page: Any, timeout_s: int = CHALLENGE_TIMEOUT_S) -> bool:
     """If a bot-verification interstitial is showing, wait for it to clear.
 
@@ -600,9 +553,7 @@ def _collect_listing_urls(
     return urls[:MAX_PROMOTIONS_PER_LISTING]
 
 
-def _scrape_detail(
-    page: Any, url: str, extract_js: str, capture_screenshot: bool = False
-) -> Optional[dict[str, str]]:
+def _scrape_detail(page: Any, url: str, extract_js: str) -> Optional[dict[str, str]]:
     """Load a single detail page and extract its structured content."""
     try:
         page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
@@ -651,17 +602,7 @@ def _scrape_detail(
         slug = urlparse(url).path.rstrip("/").split("/")[-1]
         title = slug.replace("-", " ").title() or url
 
-    screenshot = ""
-    if capture_screenshot:
-        screenshot = _capture_screenshot(page, title, content, terms)
-
-    return {
-        "title": title,
-        "content": content,
-        "terms": terms,
-        "duration": duration,
-        "screenshot": screenshot,
-    }
+    return {"title": title, "content": content, "terms": terms, "duration": duration}
 
 
 def _process_listing(
@@ -694,10 +635,7 @@ def _process_listing(
             continue
         processed.add(url)
 
-        # Screenshots are captured for Stake site promotions only.
-        detail = _scrape_detail(
-            page, url, extract_js, capture_screenshot=(source == SOURCE_SITE)
-        )
+        detail = _scrape_detail(page, url, extract_js)
         if detail is None:
             counts["failed"] += 1
             continue
@@ -710,7 +648,6 @@ def _process_listing(
             duration=detail["duration"],
             ends_at=_parse_end_date(detail["duration"]),
             finished=finished,
-            screenshot=detail.get("screenshot", ""),
             content=detail["content"],
             terms=detail["terms"],
             scraped_at=_now_iso(),

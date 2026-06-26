@@ -227,6 +227,10 @@ on first run.
   are migrated automatically to add the new `source`/`duration` columns.
 - On startup, promotions whose category is no longer configured in `scraper.py`
   (for example the removed `community` category) are pruned from the database.
+- **Screenshots.** During scraping, a screenshot of each **site** promotion page
+  is captured (via the same headless browser) and shown on its detail page.
+  Images are saved under `static/screenshots/`, named by content hash so
+  unchanged promotions reuse the same file and each renewed version keeps its own.
 - **Versioning & de-duplication.** Records are unique on **(URL + content)**.
   Re-scraping a promotion whose text is unchanged updates it in place (no
   duplicate). When a Stake **site** promotion is renewed at the same URL with

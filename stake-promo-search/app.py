@@ -367,6 +367,8 @@ def _run_maintenance() -> None:
 
 @app.on_event("startup")
 def _on_startup() -> None:
+    # Ensure the screenshots directory exists so /static can serve images.
+    scraper.SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     database.init_db()
     # Drop promotions for categories no longer configured (e.g. 'community') and
     # remove site promotions that finished more than a month ago.

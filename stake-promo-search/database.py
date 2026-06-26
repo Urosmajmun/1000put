@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS promotions (
     ends_at      TEXT    NOT NULL DEFAULT '',
     finished     INTEGER NOT NULL DEFAULT 0,
     archived_at  TEXT    NOT NULL DEFAULT '',
+    screenshot   TEXT    NOT NULL DEFAULT '',
     content      TEXT    NOT NULL DEFAULT '',
     terms        TEXT    NOT NULL DEFAULT '',
     scraped_at   TEXT    NOT NULL,
@@ -136,7 +137,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     """
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(promotions)")}
     if "content_hash" in existing:
-        return  # already on the current schema
+        # Already versioned; just add columns introduced later.
+        if "screenshot" not in existing:
+            conn.execute("ALTER TABLE promotions ADD COLUMN screenshot TEXT NOT NULL DEFAULT ''")
+            logger.info("Migrated database: added 'screenshot' column")
+        return
 
     logger.info("Migrating database to versioned schema (rebuilding table)…")
     old_rows = [dict(r) for r in conn.execute("SELECT * FROM promotions").fetchall()]
@@ -194,6 +199,7 @@ def store_promotion(
     scraped_at: str,
     ends_at: str = "",
     finished: bool = False,
+    screenshot: str = "",
     keep_history: bool = False,
     today: Optional[str] = None,
 ) -> str:
@@ -224,15 +230,29 @@ def store_promotion(
             (url, content_hash),
         ).fetchone()
         if existing is not None:
-            conn.execute(
-                """
-                UPDATE promotions
-                SET category = ?, source = ?, duration = ?, ends_at = ?,
-                    finished = ?, scraped_at = ?
-                WHERE id = ?
-                """,
-                (category, source, duration, ends_at, finished_int, scraped_at, existing["id"]),
-            )
+            # Refresh bookkeeping; only overwrite the screenshot if a fresh one
+            # was captured, so we never blank an existing image.
+            if screenshot:
+                conn.execute(
+                    """
+                    UPDATE promotions
+                    SET category = ?, source = ?, duration = ?, ends_at = ?,
+                        finished = ?, screenshot = ?, scraped_at = ?
+                    WHERE id = ?
+                    """,
+                    (category, source, duration, ends_at, finished_int, screenshot,
+                     scraped_at, existing["id"]),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE promotions
+                    SET category = ?, source = ?, duration = ?, ends_at = ?,
+                        finished = ?, scraped_at = ?
+                    WHERE id = ?
+                    """,
+                    (category, source, duration, ends_at, finished_int, scraped_at, existing["id"]),
+                )
             conn.commit()
             return "unchanged"
 
@@ -266,12 +286,12 @@ def store_promotion(
             """
             INSERT INTO promotions
                 (url, content_hash, title, category, source, duration, ends_at,
-                 finished, archived_at, content, terms, scraped_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
+                 finished, archived_at, screenshot, content, terms, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)
             """,
             (
                 url, content_hash, title, category, source, duration, ends_at,
-                finished_int, content, terms, scraped_at,
+                finished_int, screenshot, content, terms, scraped_at,
             ),
         )
         conn.commit()
@@ -295,7 +315,7 @@ def _build_match_query(query: str) -> Optional[str]:
 
 _COLUMNS = (
     "id, url, title, category, source, duration, ends_at, finished, "
-    "archived_at, content, terms, scraped_at"
+    "archived_at, screenshot, content, terms, scraped_at"
 )
 
 

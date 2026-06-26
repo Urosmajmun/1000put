@@ -29,7 +29,7 @@
             },
         };
     </script>
-    <link rel="stylesheet" href="/static/styles.css?v=5" />
+    <link rel="stylesheet" href="/static/styles.css?v=6" />
 </head>
 <body class="bg-stake-bg text-white min-h-screen font-sans antialiased">
     <div class="max-w-3xl mx-auto px-4 py-8">
@@ -60,6 +60,18 @@
             <p class="mt-3 inline-flex items-center gap-2 rounded-lg bg-stake-green/10 border border-stake-green/30 px-3 py-1.5 text-sm font-bold text-stake-green">
                 🗓 {{ promotion.duration }}
             </p>
+            {% endif %}
+
+            {% if promotion.screenshot %}
+            <figure class="mt-4">
+                <img src="/static/screenshots/{{ promotion.screenshot }}"
+                     alt="Screenshot of {{ promotion.title }} on stake.com"
+                     loading="lazy"
+                     class="w-full rounded-xl border border-stake-border shadow-lg" />
+                <figcaption class="mt-1.5 text-xs text-stake-muted">
+                    Snapshot captured from stake.com on {{ promotion.scraped_at[:10] }}
+                </figcaption>
+            </figure>
             {% endif %}
 
             <dl class="text-sm text-stake-muted mt-4 space-y-1">

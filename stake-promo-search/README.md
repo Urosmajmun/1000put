@@ -169,10 +169,11 @@ the page reports progress and shows results automatically when it finishes.
   the promotion **duration** (date range) when available, and a short preview.
 - **Click a result** — opens the full promotion: complete content, terms &
   conditions, the duration, the source URL, and when it was last updated. The
-  **How To Enter** section is highlighted and the text is reflowed for
-  readability (spacing after punctuation, one sentence per line), long
-  leaderboard tables are omitted; this is display-only and never changes the
-  stored data or search results.
+  content is rendered in a Stake-styled layout — the **How To Enter** steps
+  appear as numbered green badges, bullet points and section headings are
+  formatted, and the text is reflowed for readability (spacing after
+  punctuation, one sentence per line) with long leaderboard tables omitted. This
+  is display-only and never changes the stored data or search results.
 - **Refresh data** — re-scrapes the site and forum and updates the database.
 
 ---

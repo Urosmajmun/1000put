@@ -75,3 +75,106 @@ select:focus,
 button:focus-visible {
     outline: 2px solid transparent;
 }
+
+/* ------------------------------------------------------------------ *
+ * Stake-styled promotion content (detail page)
+ * ------------------------------------------------------------------ */
+
+.promo-content {
+    font-size: 0.95rem;
+    line-height: 1.7;
+    color: #cdd6e3;
+    max-width: 70ch;
+}
+
+.promo-content p {
+    margin: 0 0 0.85rem;
+}
+
+.promo-content strong,
+.promo-content b {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+/* Section sub-headings within the body (e.g. "Prizes", "Eligibility"). */
+.promo-section {
+    margin: 1.5rem 0 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.01em;
+}
+
+/* Bullet lists with a green Stake marker. */
+.promo-list {
+    margin: 0 0 0.95rem;
+    padding: 0;
+    list-style: none;
+}
+.promo-list li {
+    position: relative;
+    margin: 0.4rem 0;
+    padding-left: 1.25rem;
+}
+.promo-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.62em;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 9999px;
+    background: #00e701;
+}
+
+/* Numbered "steps" with green circular badges (How To Enter, etc.). */
+.promo-steps {
+    counter-reset: step;
+    margin: 0.25rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+.promo-steps li {
+    counter-increment: step;
+    position: relative;
+    min-height: 1.6rem;
+    margin: 0.55rem 0;
+    padding: 0.1rem 0 0 2.4rem;
+}
+.promo-steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.65rem;
+    height: 1.65rem;
+    border-radius: 9999px;
+    background: #00e701;
+    color: #0f212e;
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+/* "How To Enter" callout: a green-accented panel that stands out. */
+.promo-howto {
+    margin: 1.25rem 0;
+    padding: 1rem 1.15rem 1.1rem;
+    border: 1px solid rgba(0, 231, 1, 0.3);
+    background: rgba(0, 231, 1, 0.06);
+    border-radius: 0.85rem;
+}
+.promo-howto-title {
+    margin: 0 0 0.5rem;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #00e701;
+}
+.promo-howto .promo-steps {
+    margin-top: 0.25rem;
+}

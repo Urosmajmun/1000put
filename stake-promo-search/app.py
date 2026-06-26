@@ -173,13 +173,71 @@ def _heading_kind(line: str) -> Optional[str]:
     return None
 
 
-def content_to_html(text: str) -> str:
-    """Render formatted promotion content as safe HTML.
+# Matches an explicit list item: "1.", "2)", "- ", "• ", "* ".
+_NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+(.*)$")
+_BULLET_RE = re.compile(r"^\s*[-–—•*]\s+(.*)$")
+_LEADING_MARKER_RE = re.compile(r"^\s*(?:\d+[.)]|[-–—•*])\s*")
 
-    The 'How To Enter' section (its heading plus the lines up to the next
-    heading) is wrapped in a highlighted, more prominent block; other headings
-    become bold subheadings. All text is HTML-escaped before any markup is added,
-    so scraped content can never inject markup.
+
+def _split_heading(line: str) -> tuple[str, str]:
+    """Split a heading line into (label, remainder) at the first colon.
+
+    Handles content that shares the heading's line, e.g.
+    "How To Enter: Opt in" -> ("How To Enter", "Opt in").
+    """
+    stripped = line.strip()
+    label, sep, rest = stripped.partition(":")
+    if sep:
+        return label.strip(), rest.strip()
+    return stripped, ""
+
+
+def _list_item(line: str) -> tuple[Optional[str], str]:
+    """Classify a line as an ordered ('ol') / unordered ('ul') list item, or not."""
+    m = _NUMBERED_RE.match(line)
+    if m:
+        return "ol", m.group(1).strip()
+    m = _BULLET_RE.match(line)
+    if m:
+        return "ul", m.group(1).strip()
+    return None, ""
+
+
+def _strip_marker(text: str) -> str:
+    """Drop any leading "1." / "-" marker so it isn't duplicated by styling."""
+    return _LEADING_MARKER_RE.sub("", text).strip()
+
+
+def _render_body(lines: list[str]) -> str:
+    """Render body lines, grouping runs of list items into styled lists."""
+    out: list[str] = []
+    i, n = 0, len(lines)
+    while i < n:
+        kind, _ = _list_item(lines[i])
+        if kind:
+            items: list[str] = []
+            while i < n:
+                k2, text2 = _list_item(lines[i])
+                if k2 != kind:
+                    break
+                items.append(f"<li>{html.escape(text2)}</li>")
+                i += 1
+            css = "promo-steps" if kind == "ol" else "promo-list"
+            out.append(f'<{kind} class="{css}">{"".join(items)}</{kind}>')
+        else:
+            out.append(f"<p>{html.escape(lines[i].strip())}</p>")
+            i += 1
+    return "".join(out)
+
+
+def content_to_html(text: str) -> str:
+    """Render formatted promotion content as Stake-styled, safe HTML.
+
+    The 'How To Enter' section becomes a highlighted callout whose lines are laid
+    out as numbered steps; other recognised headings become section titles; bullet
+    and numbered runs become styled lists; everything else is paragraphs. All text
+    is HTML-escaped before any markup is added, so scraped content cannot inject
+    markup. Visual styling lives in ``static/styles.css`` (``.promo-*`` classes).
     """
     formatted = format_promo_text(text)
     if not formatted:
@@ -187,8 +245,7 @@ def content_to_html(text: str) -> str:
 
     lines = formatted.split("\n")
     out: list[str] = []
-    i = 0
-    n = len(lines)
+    i, n = 0, len(lines)
     while i < n:
         line = lines[i]
         if not line.strip():
@@ -196,30 +253,40 @@ def content_to_html(text: str) -> str:
             continue
         kind = _heading_kind(line)
         if kind == "howto":
-            heading = html.escape(line.strip().rstrip(":"))
-            body: list[str] = []
+            label, rest = _split_heading(line)
+            body: list[str] = [rest] if rest else []
             j = i + 1
             while j < n and _heading_kind(lines[j]) is None:
                 if lines[j].strip():
-                    body.append(html.escape(lines[j].strip()))
+                    body.append(lines[j].strip())
                 j += 1
-            body_html = "<br>".join(body)
-            out.append(
-                '<div class="my-4 rounded-lg border-l-4 border-amber-400 bg-amber-50 p-4">'
-                f'<p class="font-bold text-amber-800 text-lg mb-2">{heading}</p>'
-                f'<div class="text-slate-800 leading-relaxed">{body_html}</div>'
-                "</div>"
-            )
+            steps = "".join(f"<li>{html.escape(_strip_marker(b))}</li>" for b in body if b)
+            if steps:
+                out.append(
+                    '<div class="promo-howto">'
+                    f'<p class="promo-howto-title">{html.escape(label)}</p>'
+                    f'<ol class="promo-steps">{steps}</ol>'
+                    "</div>"
+                )
+            else:
+                out.append(f'<h3 class="promo-section">{html.escape(label)}</h3>')
             i = j
         elif kind == "section":
-            heading = html.escape(line.strip().rstrip(":"))
-            out.append(f'<p class="font-semibold text-white mt-4 mb-1">{heading}</p>')
+            label, rest = _split_heading(line)
+            out.append(f'<h3 class="promo-section">{html.escape(label)}</h3>')
+            run: list[str] = [rest] if rest else []
             i += 1
+            while i < n and lines[i].strip() and _heading_kind(lines[i]) is None:
+                run.append(lines[i])
+                i += 1
+            if run:
+                out.append(_render_body(run))
         else:
-            out.append(
-                f'<p class="mb-2 text-slate-200 leading-relaxed">{html.escape(line.strip())}</p>'
-            )
-            i += 1
+            run = []
+            while i < n and lines[i].strip() and _heading_kind(lines[i]) is None:
+                run.append(lines[i])
+                i += 1
+            out.append(_render_body(run))
     return "".join(out)
 
 

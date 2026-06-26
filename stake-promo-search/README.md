@@ -226,8 +226,13 @@ on first run.
   are migrated automatically to add the new `source`/`duration` columns.
 - On startup, promotions whose category is no longer configured in `scraper.py`
   (for example the removed `community` category) are pruned from the database.
-- **Duplicates are prevented** by a `UNIQUE` constraint on the promotion URL;
-  re-scraping updates existing rows in place.
+- **Versioning & de-duplication.** Records are unique on **(URL + content)**.
+  Re-scraping a promotion whose text is unchanged updates it in place (no
+  duplicate). When a Stake **site** promotion is renewed at the same URL with
+  different text, the previous version is kept as a separate **finished** record
+  (so the old wording stays searchable) and the new text becomes the current
+  active record. Forum promotions are simply replaced in place. Migrating an
+  older database to this versioned schema happens automatically on startup.
 - **Search uses SQLite FTS5** (with the `porter` stemmer) over title, content
   and terms, ranked by relevance. User input is converted to safe prefix terms,
   so partial words match and arbitrary input can never break the query.

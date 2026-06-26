@@ -617,7 +617,7 @@ def _process_listing(
             counts["failed"] += 1
             continue
 
-        is_new = database.upsert_promotion(
+        status = database.store_promotion(
             url=url,
             title=detail["title"],
             category=category,
@@ -628,14 +628,19 @@ def _process_listing(
             content=detail["content"],
             terms=detail["terms"],
             scraped_at=_now_iso(),
+            keep_history=(source == SOURCE_SITE),
         )
-        counts["inserted" if is_new else "updated"] += 1
+        # "versioned" means a new (changed) version was kept alongside the old one.
+        if status in ("inserted", "versioned"):
+            counts["inserted"] += 1
+        else:
+            counts["updated"] += 1
         logger.info(
             "Stored [%s/%s] %s (%s)",
             source,
             category,
             detail["title"][:60],
-            "new" if is_new else "updated",
+            status,
         )
         time.sleep(DETAIL_DELAY_S)
 

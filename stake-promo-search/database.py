@@ -8,6 +8,7 @@ on the promotion URL.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import sqlite3
@@ -20,21 +21,29 @@ logger = logging.getLogger(__name__)
 # Database file lives next to this module so the app is fully self-contained.
 DB_PATH: Path = Path(__file__).resolve().parent / "promotions.db"
 
-_SCHEMA = """
+# The canonical table. Uniqueness is on (url, content_hash) rather than url
+# alone, so a promotion that is renewed at the same URL with different text is
+# kept as a separate record while an unchanged re-scrape is deduplicated.
+_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS promotions (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    url         TEXT    NOT NULL UNIQUE,
-    title       TEXT    NOT NULL,
-    category    TEXT    NOT NULL,
-    source      TEXT    NOT NULL DEFAULT 'site',
-    duration    TEXT    NOT NULL DEFAULT '',
-    ends_at     TEXT    NOT NULL DEFAULT '',
-    finished    INTEGER NOT NULL DEFAULT 0,
-    content     TEXT    NOT NULL DEFAULT '',
-    terms       TEXT    NOT NULL DEFAULT '',
-    scraped_at  TEXT    NOT NULL
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    url          TEXT    NOT NULL,
+    content_hash TEXT    NOT NULL DEFAULT '',
+    title        TEXT    NOT NULL,
+    category     TEXT    NOT NULL,
+    source       TEXT    NOT NULL DEFAULT 'site',
+    duration     TEXT    NOT NULL DEFAULT '',
+    ends_at      TEXT    NOT NULL DEFAULT '',
+    finished     INTEGER NOT NULL DEFAULT 0,
+    archived_at  TEXT    NOT NULL DEFAULT '',
+    content      TEXT    NOT NULL DEFAULT '',
+    terms        TEXT    NOT NULL DEFAULT '',
+    scraped_at   TEXT    NOT NULL,
+    UNIQUE(url, content_hash)
 );
+"""
 
+_FTS_TRIGGERS_DDL = """
 CREATE VIRTUAL TABLE IF NOT EXISTS promotions_fts USING fts5(
     title,
     content,
@@ -78,16 +87,28 @@ def _connect() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create tables, the FTS index and triggers if they do not exist yet."""
+    """Create / migrate the table, then (re)create the FTS index and triggers."""
     conn = _connect()
     try:
-        conn.executescript(_SCHEMA)
+        conn.executescript(_TABLE_DDL)
         _migrate(conn)
+        conn.executescript(_FTS_TRIGGERS_DDL)
         _rebuild_fts(conn)
         conn.commit()
         logger.info("Database initialised at %s", DB_PATH)
     finally:
         conn.close()
+
+
+def _content_hash(title: str, content: str, terms: str) -> str:
+    """A stable hash of a promotion's text, ignoring incidental whitespace.
+
+    Two scrapes of the same promotion produce the same hash; a renewed promotion
+    with even slightly different wording produces a different one.
+    """
+    norm = lambda s: " ".join((s or "").split())  # noqa: E731
+    blob = "\x01".join([norm(title), norm(content), norm(terms)])
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def _rebuild_fts(conn: sqlite3.Connection) -> None:
@@ -105,28 +126,63 @@ def _rebuild_fts(conn: sqlite3.Connection) -> None:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Add columns introduced after the first release to pre-existing databases.
+    """Upgrade older databases in place.
 
-    SQLite has no ``ADD COLUMN IF NOT EXISTS``, so we inspect the schema first.
-    Existing rows predate the source/duration split, so they default to the
-    Stake site source and an empty duration until they are next scraped.
+    The schema changed from a single row per URL (``url`` UNIQUE) to a row per
+    distinct content version (``UNIQUE(url, content_hash)``). SQLite cannot drop
+    a UNIQUE constraint with ALTER, so when the ``content_hash`` column is absent
+    we rebuild the table: copy every existing row into the new shape (computing
+    its content hash) and recreate the FTS index and triggers afterwards.
     """
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(promotions)")}
-    if "source" not in existing:
-        conn.execute("ALTER TABLE promotions ADD COLUMN source TEXT NOT NULL DEFAULT 'site'")
-        logger.info("Migrated database: added 'source' column")
-    if "duration" not in existing:
-        conn.execute("ALTER TABLE promotions ADD COLUMN duration TEXT NOT NULL DEFAULT ''")
-        logger.info("Migrated database: added 'duration' column")
-    if "ends_at" not in existing:
-        conn.execute("ALTER TABLE promotions ADD COLUMN ends_at TEXT NOT NULL DEFAULT ''")
-        logger.info("Migrated database: added 'ends_at' column")
-    if "finished" not in existing:
-        conn.execute("ALTER TABLE promotions ADD COLUMN finished INTEGER NOT NULL DEFAULT 0")
-        logger.info("Migrated database: added 'finished' column")
+    if "content_hash" in existing:
+        return  # already on the current schema
+
+    logger.info("Migrating database to versioned schema (rebuilding table)…")
+    old_rows = [dict(r) for r in conn.execute("SELECT * FROM promotions").fetchall()]
+
+    conn.executescript(
+        """
+        DROP TRIGGER IF EXISTS promotions_ai;
+        DROP TRIGGER IF EXISTS promotions_ad;
+        DROP TRIGGER IF EXISTS promotions_au;
+        DROP TABLE IF EXISTS promotions_fts;
+        ALTER TABLE promotions RENAME TO promotions_old;
+        """
+    )
+    conn.executescript(_TABLE_DDL)
+
+    for row in old_rows:
+        title = row.get("title") or ""
+        content = row.get("content") or ""
+        terms = row.get("terms") or ""
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO promotions
+                (url, content_hash, title, category, source, duration, ends_at,
+                 finished, archived_at, content, terms, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
+            """,
+            (
+                row.get("url") or "",
+                _content_hash(title, content, terms),
+                title,
+                row.get("category") or "",
+                row.get("source") or "site",
+                row.get("duration") or "",
+                row.get("ends_at") or "",
+                int(row.get("finished") or 0),
+                content,
+                terms,
+                row.get("scraped_at") or "",
+            ),
+        )
+
+    conn.execute("DROP TABLE promotions_old")
+    logger.info("Migration complete: %d row(s) carried over", len(old_rows))
 
 
-def upsert_promotion(
+def store_promotion(
     *,
     url: str,
     title: str,
@@ -138,53 +194,88 @@ def upsert_promotion(
     scraped_at: str,
     ends_at: str = "",
     finished: bool = False,
-) -> bool:
-    """Insert a promotion or update it in place when the URL already exists.
+    keep_history: bool = False,
+    today: Optional[str] = None,
+) -> str:
+    """Store a scraped promotion, versioning it when its text has changed.
 
-    ``ends_at`` is the promotion's end date (ISO ``YYYY-MM-DD``) parsed from the
-    duration, used to decide whether a dated promotion has finished. ``finished``
-    forces the finished state regardless of date (used for the forum's past
-    events board). Returns ``True`` if a new row was inserted, ``False`` if an
-    existing row was updated. The UNIQUE constraint on ``url`` prevents dupes.
+    Behaviour depends on whether an identical record (same ``url`` *and* text)
+    already exists:
+
+    * **Unchanged** — the same URL and text are already stored: only the
+      bookkeeping fields are refreshed, so nothing is duplicated.
+    * **Changed text at a known URL** — a renewed promotion. With
+      ``keep_history`` (Stake site) the previous version(s) for that URL are
+      archived (marked finished, dated today) and the new text is inserted as the
+      current record. Without it (forum) the old rows are replaced.
+    * **New URL** — inserted as-is.
+
+    Returns one of ``"unchanged"``, ``"versioned"``, ``"updated"`` or
+    ``"inserted"``.
     """
+    content_hash = _content_hash(title, content, terms)
+    today = today or date.today().isoformat()
+    finished_int = 1 if finished else 0
     conn = _connect()
     try:
-        cur = conn.execute("SELECT 1 FROM promotions WHERE url = ?", (url,))
-        existed = cur.fetchone() is not None
+        # 1) Exact same text already stored for this URL -> just refresh fields.
+        existing = conn.execute(
+            "SELECT id FROM promotions WHERE url = ? AND content_hash = ?",
+            (url, content_hash),
+        ).fetchone()
+        if existing is not None:
+            conn.execute(
+                """
+                UPDATE promotions
+                SET category = ?, source = ?, duration = ?, ends_at = ?,
+                    finished = ?, scraped_at = ?
+                WHERE id = ?
+                """,
+                (category, source, duration, ends_at, finished_int, scraped_at, existing["id"]),
+            )
+            conn.commit()
+            return "unchanged"
+
+        url_rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM promotions WHERE url = ?", (url,)
+        ).fetchone()["n"]
+
+        if keep_history:
+            if url_rows:
+                # Archive the prior version(s) of this promotion.
+                conn.execute(
+                    """
+                    UPDATE promotions
+                    SET finished = 1, archived_at = ?
+                    WHERE url = ? AND content_hash <> ? AND archived_at = ''
+                    """,
+                    (today, url, content_hash),
+                )
+                status = "versioned"
+            else:
+                status = "inserted"
+        else:
+            # No history kept (forum): replace any existing rows for this URL.
+            if url_rows:
+                conn.execute("DELETE FROM promotions WHERE url = ?", (url,))
+                status = "updated"
+            else:
+                status = "inserted"
+
         conn.execute(
             """
             INSERT INTO promotions
-                (url, title, category, source, duration, ends_at, finished,
-                 content, terms, scraped_at)
-            VALUES
-                (:url, :title, :category, :source, :duration, :ends_at, :finished,
-                 :content, :terms, :scraped_at)
-            ON CONFLICT(url) DO UPDATE SET
-                title      = excluded.title,
-                category   = excluded.category,
-                source     = excluded.source,
-                duration   = excluded.duration,
-                ends_at    = excluded.ends_at,
-                finished   = excluded.finished,
-                content    = excluded.content,
-                terms      = excluded.terms,
-                scraped_at = excluded.scraped_at
+                (url, content_hash, title, category, source, duration, ends_at,
+                 finished, archived_at, content, terms, scraped_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)
             """,
-            {
-                "url": url,
-                "title": title,
-                "category": category,
-                "source": source,
-                "duration": duration,
-                "ends_at": ends_at,
-                "finished": 1 if finished else 0,
-                "content": content,
-                "terms": terms,
-                "scraped_at": scraped_at,
-            },
+            (
+                url, content_hash, title, category, source, duration, ends_at,
+                finished_int, content, terms, scraped_at,
+            ),
         )
         conn.commit()
-        return not existed
+        return status
     finally:
         conn.close()
 
@@ -204,7 +295,7 @@ def _build_match_query(query: str) -> Optional[str]:
 
 _COLUMNS = (
     "id, url, title, category, source, duration, ends_at, finished, "
-    "content, terms, scraped_at"
+    "archived_at, content, terms, scraped_at"
 )
 
 
@@ -344,10 +435,11 @@ def count_promotions() -> int:
 def purge_expired_site(retention_days: int = 30, today: Optional[str] = None) -> int:
     """Delete finished Stake.com (site) promotions older than the retention window.
 
-    A finished site promotion (its end date in the past) is kept for
-    ``retention_days`` days after it ends, then removed. Forum promotions —
-    including the past-events archive — are never purged here. Returns the number
-    of rows deleted.
+    A site promotion is kept for ``retention_days`` days after it finished, then
+    removed. "Finished" here means either its end date has passed (``ends_at``)
+    or it was superseded by a renewed version (``archived_at``); the cutoff is
+    measured from whichever applies. Forum promotions — including the past-events
+    archive — are never purged here. Returns the number of rows deleted.
     """
     today_date = date.fromisoformat(today) if today else date.today()
     cutoff = (today_date - timedelta(days=retention_days)).isoformat()
@@ -356,9 +448,13 @@ def purge_expired_site(retention_days: int = 30, today: Optional[str] = None) ->
         cur = conn.execute(
             """
             DELETE FROM promotions
-            WHERE source = 'site' AND ends_at <> '' AND ends_at < ?
+            WHERE source = 'site'
+              AND (
+                    (ends_at <> '' AND ends_at < ?)
+                 OR (archived_at <> '' AND archived_at < ?)
+              )
             """,
-            (cutoff,),
+            (cutoff, cutoff),
         )
         conn.commit()
         deleted = cur.rowcount or 0

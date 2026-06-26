@@ -177,6 +177,9 @@ def _heading_kind(line: str) -> Optional[str]:
 _NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+(.*)$")
 _BULLET_RE = re.compile(r"^\s*[-–—•*]\s+(.*)$")
 _LEADING_MARKER_RE = re.compile(r"^\s*(?:\d+[.)]|[-–—•*])\s*")
+# A line that is just a bare number or an orphan list marker (e.g. "2", "6.",
+# "3)") — a scraping artifact with no content, which we drop.
+_NUMBER_ONLY_RE = re.compile(r"^\s*\d+[.)]?\s*$")
 
 
 def _split_heading(line: str) -> tuple[str, str]:
@@ -298,6 +301,8 @@ def content_to_html(text: str) -> str:
         return ""
 
     lines = _explode_numbered(_explode_bullets(formatted.split("\n")))
+    # Drop standalone bare numbers / orphan list markers (e.g. "2", "6.").
+    lines = [ln for ln in lines if not _NUMBER_ONLY_RE.match(ln)]
     out: list[str] = []
     i, n = 0, len(lines)
     while i < n:
